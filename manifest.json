@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Advanced Keyword Highlighter",
+  "version": "1.0.0",
+  "description": "Highlight keywords and phrases on web pages",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Advanced Keyword Highlighter"
+  }
+}
