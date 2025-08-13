@@ -193,7 +193,7 @@ class KeywordHighlighterPopup {
 
   parseKeywordBankText(text) {
     const keywords = text
-      .split(/[,\n\r;|]/)
+      .split(/[,\n\r;|\/]/)
       .map((keyword) => keyword.trim())
       .filter((keyword) => keyword.length > 0 && this.isValidKeyword(keyword))
       .map((keyword) => (this.exactCase ? keyword : keyword.toLowerCase()))
@@ -308,7 +308,7 @@ class KeywordHighlighterPopup {
     if (!textarea) return;
 
     const currentKeywords = textarea.value
-      .split(",")
+      .split(/[,\/]/)
       .map((k) => {
         const trimmed = k.trim();
         return this.exactCase ? trimmed : trimmed.toLowerCase();
@@ -379,7 +379,7 @@ class KeywordHighlighterPopup {
       const textarea = group.querySelector("textarea");
       if (textarea && textarea.value.trim()) {
         const groupKeywords = textarea.value
-          .split(",")
+          .split(/[,\/]/)
           .map((k) => {
             const trimmed = k.trim();
             return this.exactCase ? trimmed : trimmed.toLowerCase();
@@ -406,7 +406,7 @@ class KeywordHighlighterPopup {
       const textarea = group.querySelector("textarea");
       if (textarea && textarea.value.trim()) {
         const groupKeywords = textarea.value
-          .split(",")
+          .split(/[,\/]/)
           .map((k) => k.trim())
           .filter((k) => k.length > 0);
         keywords.push(...groupKeywords);
@@ -504,7 +504,7 @@ class KeywordHighlighterPopup {
       keywordArray = keywords.filter((k) => k && k.trim());
     } else if (typeof keywords === "string" && keywords) {
       keywordArray = keywords
-        .split(",")
+        .split(/[,\/]/)
         .map((k) => k.trim())
         .filter((k) => k);
     }
@@ -839,8 +839,7 @@ class KeywordHighlighterPopup {
           action: "toggleExtension",
           enabled: isEnabled,
         })
-        .catch(() => {
-        });
+        .catch(() => {});
     });
   }
 
@@ -877,12 +876,9 @@ class KeywordHighlighterPopup {
       }
     });
 
-    keywordGroups.forEach((group) => {
-      const keywordValues = this.getKeywordValues(group);
-      if (keywordValues.length > 0) {
-        hasValidGroups = true;
-      }
-    });
+    if (keywordGroups.length > 0) {
+      hasValidGroups = true;
+    }
 
     const isValid = hasValidPatterns && hasValidGroups;
     saveButton.disabled = !isValid;
@@ -952,24 +948,22 @@ class KeywordHighlighterPopup {
 
       const keywords = this.getKeywordValues(groupDiv);
 
-      if (keywords.length > 0) {
-        const group = {
-          id: groupId,
-          color: colorPicker ? colorPicker.value : "#ffff00",
-          keywords: keywords,
-        };
+      const group = {
+        id: groupId,
+        color: colorPicker ? colorPicker.value : "#ffff00",
+        keywords: keywords,
+      };
 
-        const customName = nameInput.value.trim();
-        if (customName) {
-          group.name = customName;
-        }
-
-        groups.push(group);
+      const customName = nameInput.value.trim();
+      if (customName) {
+        group.name = customName;
       }
+
+      groups.push(group);
     });
 
     if (groups.length === 0) {
-      alert("Please add at least one keyword group with keywords.");
+      alert("Please add at least one keyword group.");
       return;
     }
 
@@ -1487,7 +1481,7 @@ class KeywordHighlighterPopup {
     const textarea = container.querySelector(".keyword-textarea");
     if (textarea && textarea.value.trim()) {
       return textarea.value
-        .split(",")
+        .split(/[,\/]/)
         .map((k) => k.trim())
         .filter((k) => k.length > 0);
     }
@@ -1629,7 +1623,7 @@ class KeywordHighlighterPopup {
     let currentValue = textarea.value.trim();
 
     const existingKeywords = currentValue
-      .split(",")
+      .split(/[,\/]/)
       .map((k) => k.trim())
       .filter((k) => k.length > 0);
 
@@ -2145,7 +2139,7 @@ class KeywordHighlighterPopup {
     if (!value) return [];
 
     return value
-      .split(",")
+      .split(/[,\/]/)
       .map((keyword) => {
         const trimmed = keyword.trim();
         return this.exactCase ? trimmed : trimmed.toLowerCase();

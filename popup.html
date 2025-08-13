@@ -146,14 +146,15 @@
           <div class="keyword-bank-description">
             <small
               >Paste a large list of keywords here to enhance quick-add options.
-              Separate keywords with commas, new lines, or spaces.</small
+              Separate keywords with commas, forward slashes (/), new lines, or
+              spaces.</small
             >
           </div>
           <div class="keyword-bank-form">
             <textarea
               id="keywordBankText"
               class="keyword-bank-textarea"
-              placeholder="Example: JavaScript, React, Node.js, Python, Django&#10;Machine Learning, AI, Data Science&#10;Project Manager, Scrum Master, Agile"
+              placeholder="Example: JavaScript, React, Node.js, Python/Django&#10;Machine Learning, AI, Data Science&#10;Project Manager, Scrum Master, Agile&#10;Frontend/Backend, REST/GraphQL"
               rows="6"
             ></textarea>
             <div class="keyword-bank-actions">
@@ -182,9 +183,7 @@
             style="display: none"
           >
             <h4>Processed Keywords:</h4>
-            <div id="keywordBankList" class="keyword-bank-list">
-              <!-- Processed keywords will be displayed here -->
-            </div>
+            <div id="keywordBankList" class="keyword-bank-list"></div>
           </div>
         </div>
       </div>

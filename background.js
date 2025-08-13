@@ -367,20 +367,11 @@ class BackgroundService {
           });
 
         chrome.tabs
-          .reload(tab.id)
-          .then(() => {
-            console.log("Extension: Page refreshed to show new highlights");
-          })
-          .catch(() => {
-            console.log("Extension: Failed to refresh page");
-          });
-
-        chrome.tabs
           .sendMessage(tab.id, {
             action: "showNotification",
-            message: result.message,
-            type: result.type,
-            details: result.details,
+            message: `Keyword "${selectedText}" added successfully!`,
+            type: "success",
+            details: "Highlights will appear automatically.",
           })
           .catch(() => {
             console.log("Extension: Failed to send showNotification message");
@@ -434,7 +425,7 @@ class BackgroundService {
       }
 
       const keywords = keywordText
-        .split(/[,;\n]+/)
+        .split(/[,;\/\n]+/)
         .map((k) => k.trim())
         .filter((k) => k.length > 0 && /\S/.test(k));
 

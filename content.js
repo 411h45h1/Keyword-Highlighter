@@ -323,8 +323,7 @@ class KeywordHighlighter {
             };
           }
         }
-      }
-      else if (
+      } else if (
         profile.urlPattern &&
         this.urlMatches(currentUrl, profile.urlPattern)
       ) {
@@ -393,8 +392,7 @@ class KeywordHighlighter {
             } matching URL patterns`
           );
         }
-      }
-      else if (
+      } else if (
         profile.urlPattern &&
         this.urlMatches(currentUrl, profile.urlPattern)
       ) {
@@ -1070,7 +1068,19 @@ class KeywordHighlighter {
     const escaped = this.escapeRegex(keyword);
 
     if (keyword.includes(" ")) {
-      return escaped;
+      const words = keyword.split(/\s+/).map((word) => {
+        const escapedWord = this.escapeRegex(word);
+        const startsWithWord = /^\w/.test(word);
+        const endsWithWord = /\w$/.test(word);
+
+        let pattern = escapedWord;
+        if (startsWithWord) pattern = `\\b${pattern}`;
+        if (endsWithWord) pattern = `${pattern}\\b`;
+
+        return pattern;
+      });
+
+      return words.join("\\s+");
     }
 
     const startsWithWord = /^\w/.test(keyword);
@@ -1139,6 +1149,8 @@ class KeywordHighlighter {
   }
 
   showNotification(message, type = "success", details = "") {
+    this.injectNotificationCSS();
+
     const existingNotifications = document.querySelectorAll(
       ".context-menu-notification"
     );
@@ -1146,6 +1158,10 @@ class KeywordHighlighter {
 
     const notification = document.createElement("div");
     notification.className = `context-menu-notification ${type}`;
+
+    if (type === "success") {
+      notification.classList.add("success-clean");
+    }
 
     const icon = document.createElement("span");
     icon.className = "notification-icon";
@@ -1170,18 +1186,128 @@ class KeywordHighlighter {
       notification.classList.add("show");
     });
 
+    const timeout = type === "success" ? 3000 : 4000;
+
     setTimeout(() => {
       if (notification.parentNode) {
         notification.classList.remove("show");
+        notification.classList.add("hide");
         setTimeout(() => {
           if (notification.parentNode) {
             notification.remove();
           }
         }, 300);
       }
-    }, 4000);
+    }, timeout);
 
     console.log(`Notification shown: ${message} (${type})`);
+  }
+
+  injectNotificationCSS() {
+    const notificationCSSId = "keyword-highlight-notification-styles";
+
+    if (document.getElementById(notificationCSSId)) {
+      return;
+    }
+
+    const style = document.createElement("style");
+    style.id = notificationCSSId;
+    style.textContent = `
+      .context-menu-notification {
+        position: fixed !important;
+        top: 20px !important;
+        right: 20px !important;
+        z-index: 999999 !important;
+        background: #ffffff !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+        padding: 16px 20px !important;
+        min-width: 280px !important;
+        max-width: 380px !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
+        color: #2d3748 !important;
+        border-left: 4px solid #48bb78 !important;
+        opacity: 0 !important;
+        transition: opacity 0.2s ease-in-out !important;
+      }
+
+      .context-menu-notification.success-clean {
+        border-left: 4px solid #48bb78 !important;
+        background: linear-gradient(135deg, #ffffff 0%, #f7fafc 100%) !important;
+      }
+
+      .context-menu-notification.show {
+        opacity: 1 !important;
+      }
+
+      .context-menu-notification.hide {
+        opacity: 0 !important;
+        transition: opacity 0.2s ease-in-out !important;
+      }
+
+      .context-menu-notification.error {
+        border-left-color: #f56565 !important;
+        background: linear-gradient(135deg, #ffffff 0%, #fef5f5 100%) !important;
+      }
+
+      .context-menu-notification .notification-icon {
+        display: inline-block !important;
+        margin-right: 10px !important;
+        font-size: 16px !important;
+        vertical-align: top !important;
+        margin-top: 1px !important;
+      }
+
+      .context-menu-notification.success .notification-icon::before,
+      .context-menu-notification.success-clean .notification-icon::before {
+        content: "✓" !important;
+        color: #48bb78 !important;
+        font-weight: bold !important;
+      }
+
+      .context-menu-notification.error .notification-icon::before {
+        content: "⚠" !important;
+        color: #f56565 !important;
+        font-weight: bold !important;
+      }
+
+      .context-menu-notification .notification-message {
+        font-weight: 500 !important;
+        color: #2d3748 !important;
+        margin-bottom: 0 !important;
+        display: inline-block !important;
+        vertical-align: top !important;
+        width: calc(100% - 26px) !important;
+      }
+
+      .context-menu-notification .notification-details {
+        font-size: 12px !important;
+        color: #718096 !important;
+        margin-top: 6px !important;
+        font-weight: 400 !important;
+        line-height: 1.4 !important;
+      }
+
+      .context-menu-notification.success-clean .notification-details {
+        color: #68d391 !important;
+      }
+
+      .context-menu-notification.error .notification-details {
+        color: #f56565 !important;
+      }
+
+      /* Subtle hover effect for interactivity feedback */
+      .context-menu-notification:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 3px 10px rgba(0, 0, 0, 0.1) !important;
+        transform: translateY(-1px) !important;
+        transition: all 0.2s ease-in-out !important;
+      }
+    `;
+
+    document.head.appendChild(style);
+    console.log("Extension: Injected clean notification CSS");
   }
 }
 
