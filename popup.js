@@ -9,6 +9,7 @@ class KeywordHighlighterPopup {
     this.cachedProfiles = [];
     this.keywordBank = [];
     this.templates = this.getTemplates();
+    this.keywordBankInputTimeout = null; // For debouncing input
     this.init();
   }
 
@@ -75,11 +76,12 @@ class KeywordHighlighterPopup {
 
     let separatorPattern;
     if (includeNewlines) {
-      // For context menus and keyword bank - split on commas, slashes, newlines, semicolons, pipes, tabs
-      separatorPattern = /[,;\/\n\r\t|]+/;
+      // For context menus and keyword bank - split on commas, newlines, semicolons, pipes, tabs
+      // BUT preserve forward slashes between word characters (like HL7/FHIR, API/REST)
+      separatorPattern = /[,;\n\r\t|]+/;
     } else {
-      // For regular form inputs - split only on commas and slashes
-      separatorPattern = /[,\/]+/;
+      // For regular form inputs - split only on commas
+      separatorPattern = /[,]+/;
     }
 
     return text
@@ -87,8 +89,23 @@ class KeywordHighlighterPopup {
       .map((keyword) => keyword.trim())
       .filter((keyword) => keyword.length > 0 && /\S/.test(keyword))
       .flatMap((keyword) => {
+        // Only split on forward slash if it's NOT between word characters
+        // This preserves terms like "HL7/FHIR", "API/REST", "C++/Java", "24/7", etc.
+        if (keyword.includes("/")) {
+          // Check if the slash is between word characters (letters, numbers, underscore)
+          if (/\w\/\w/.test(keyword)) {
+            // Keep the whole term intact (e.g., "HL7/FHIR")
+            return [keyword];
+          } else {
+            // Split on slash if it's not between word characters (e.g., "word1/ word2")
+            return keyword
+              .split("/")
+              .map((k) => k.trim())
+              .filter((k) => k.length > 0);
+          }
+        }
+
         // Handle cases where multiple keywords might be separated by multiple spaces
-        // This helps with list items that might have extra spacing
         return keyword
           .split(/\s{2,}/)
           .map((word) => word.trim())
@@ -256,15 +273,23 @@ class KeywordHighlighterPopup {
   }
 
   handleKeywordBankInput() {
-    const textarea = document.getElementById("keywordBankText");
-    const rawText = textarea.value.trim();
-
-    if (rawText) {
-      const keywords = this.parseKeywordBankText(rawText);
-      this.updateKeywordBankCount(keywords.length);
-    } else {
-      this.updateKeywordBankCount(0);
+    // Clear previous timeout to debounce input
+    if (this.keywordBankInputTimeout) {
+      clearTimeout(this.keywordBankInputTimeout);
     }
+
+    // Debounce the processing for better performance
+    this.keywordBankInputTimeout = setTimeout(() => {
+      const textarea = document.getElementById("keywordBankText");
+      const rawText = textarea.value.trim();
+
+      if (rawText) {
+        const keywords = this.parseKeywordBankText(rawText);
+        this.updateKeywordBankCount(keywords.length);
+      } else {
+        this.updateKeywordBankCount(0);
+      }
+    }, 300); // 300ms debounce delay
   }
 
   handleProcessKeywordBank() {

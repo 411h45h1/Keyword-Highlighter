@@ -1,6 +1,19 @@
 class BackgroundService {
   constructor() {
+    this.updateContextMenusTimeout = null;
+    this.isUpdatingContextMenus = false;
+    this.debugMode = true;
     this.init();
+  }
+
+  log(...args) {
+    if (this.debugMode) {
+      console.log(...args);
+    }
+  }
+
+  logError(...args) {
+    console.error(...args);
   }
 
   init() {
@@ -14,7 +27,7 @@ class BackgroundService {
   }
 
   handleTabUpdate(tabId, changeInfo, tab) {
-    console.log("Extension: Tab updated:", {
+    this.log("Extension: Tab updated:", {
       tabId,
       status: changeInfo.status,
       url: tab.url,
@@ -25,17 +38,17 @@ class BackgroundService {
   }
 
   handleTabActivated(activeInfo) {
-    console.log("Extension: Tab activated:", activeInfo.tabId);
+    this.log("Extension: Tab activated:", activeInfo.tabId);
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) {
-        console.log(
+        this.log(
           "Extension: Error getting tab info:",
           chrome.runtime.lastError.message
         );
         return;
       }
 
-      console.log("Extension: Tab info:", { url: tab.url, status: tab.status });
+      this.log("Extension: Tab info:", { url: tab.url, status: tab.status });
       if (tab.url && tab.status === "complete") {
         this.processTab(tab.id, tab.url);
         this.updateContextMenus(tab.url);
@@ -44,21 +57,21 @@ class BackgroundService {
   }
 
   async processTab(tabId, url) {
-    console.log("Extension: Processing tab:", { tabId, url });
+    this.log("Extension: Processing tab:", { tabId, url });
     try {
       const result = await chrome.storage.sync.get(["extensionEnabled"]);
       const isEnabled = result.extensionEnabled !== false;
 
-      console.log("Extension: Enabled status:", isEnabled);
+      this.log("Extension: Enabled status:", isEnabled);
 
       if (!isEnabled) {
-        console.log("Extension: Extension disabled, skipping tab processing");
+        this.log("Extension: Extension disabled, skipping tab processing");
         await this.hideContextMenus();
         return;
       }
 
       if (!this.shouldProcessUrl(url)) {
-        console.log("Extension: URL should not be processed:", url);
+        this.log("Extension: URL should not be processed:", url);
         await this.hideContextMenus();
         return;
       }
@@ -70,10 +83,10 @@ class BackgroundService {
           action: "updateProfiles",
         })
         .catch(() => {
-          console.log("Extension: Content script not ready for tab:", tabId);
+          this.log("Extension: Content script not ready for tab:", tabId);
         });
     } catch (error) {
-      console.error("Error processing tab:", error);
+      this.logError("Error processing tab:", error);
     }
   }
 
@@ -124,14 +137,26 @@ class BackgroundService {
     try {
       await chrome.contextMenus.removeAll();
 
-      chrome.contextMenus.create({
-        id: "quick-add-keyword",
-        title: "Add '%s' to keyword group",
-        contexts: ["selection"],
-        visible: false,
-      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
-      console.log("Context menus created successfully");
+      chrome.contextMenus.create(
+        {
+          id: "quick-add-keyword",
+          title: "Add '%s' to keyword group",
+          contexts: ["selection"],
+          visible: false,
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.log(
+              "Context menu creation error (expected on duplicate):",
+              chrome.runtime.lastError.message
+            );
+          } else {
+            console.log("Context menus created successfully");
+          }
+        }
+      );
     } catch (error) {
       console.error("Error creating context menus:", error);
     }
@@ -139,6 +164,30 @@ class BackgroundService {
 
   async updateContextMenus(currentUrl) {
     console.log("Extension: Updating context menus for URL:", currentUrl);
+
+    if (this.isUpdatingContextMenus) {
+      console.log(
+        "Extension: Context menu update already in progress, skipping"
+      );
+      return;
+    }
+
+    if (this.updateContextMenusTimeout) {
+      clearTimeout(this.updateContextMenusTimeout);
+    }
+
+    this.updateContextMenusTimeout = setTimeout(async () => {
+      await this.performContextMenuUpdate(currentUrl);
+    }, 100);
+  }
+
+  async performContextMenuUpdate(currentUrl) {
+    if (this.isUpdatingContextMenus) {
+      return;
+    }
+
+    this.isUpdatingContextMenus = true;
+
     try {
       const result = await chrome.storage.sync.get([
         "profiles",
@@ -167,6 +216,8 @@ class BackgroundService {
       }
     } catch (error) {
       console.error("Error updating context menus:", error);
+    } finally {
+      this.isUpdatingContextMenus = false;
     }
   }
 
@@ -272,41 +323,79 @@ class BackgroundService {
     try {
       await chrome.contextMenus.removeAll();
 
-      const mainMenuId = chrome.contextMenus.create({
-        id: "quick-add-keyword",
-        title: "Add '%s' to keyword group",
-        contexts: ["selection"],
-      });
-      console.log("Extension: Created main context menu item:", mainMenuId);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const mainMenuId = chrome.contextMenus.create(
+        {
+          id: "quick-add-keyword",
+          title: "Add '%s' to keyword group",
+          contexts: ["selection"],
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.log(
+              "Main menu creation error (expected on duplicate):",
+              chrome.runtime.lastError.message
+            );
+          } else {
+            console.log(
+              "Extension: Created main context menu item:",
+              "quick-add-keyword"
+            );
+          }
+        }
+      );
 
       for (const profile of matchingProfiles) {
         const profileId = `profile-${profile.id}`;
-        const profileMenuId = chrome.contextMenus.create({
-          id: profileId,
-          parentId: "quick-add-keyword",
-          title: profile.name || `Profile ${profile.id}`,
-          contexts: ["selection"],
-        });
-        console.log(
-          `Extension: Created profile menu for "${
-            profile.name || profile.id
-          }":`,
-          profileMenuId
+        const profileMenuId = chrome.contextMenus.create(
+          {
+            id: profileId,
+            parentId: "quick-add-keyword",
+            title: profile.name || `Profile ${profile.id}`,
+            contexts: ["selection"],
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              console.log(
+                `Profile menu creation error for ${profileId}:`,
+                chrome.runtime.lastError.message
+              );
+            } else {
+              console.log(
+                `Extension: Created profile menu for "${
+                  profile.name || profile.id
+                }":`,
+                profileId
+              );
+            }
+          }
         );
 
         if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
           profile.keywordGroups.forEach((group, index) => {
             const groupId = `${profileId}-group-${index}`;
             const groupName = group.name || `Group ${index + 1}`;
-            const groupMenuId = chrome.contextMenus.create({
-              id: groupId,
-              parentId: profileId,
-              title: groupName,
-              contexts: ["selection"],
-            });
-            console.log(
-              `Extension: Created group menu "${groupName}":`,
-              groupMenuId
+            const groupMenuId = chrome.contextMenus.create(
+              {
+                id: groupId,
+                parentId: profileId,
+                title: groupName,
+                contexts: ["selection"],
+              },
+              () => {
+                if (chrome.runtime.lastError) {
+                  console.log(
+                    `Group menu creation error for ${groupId}:`,
+                    chrome.runtime.lastError.message
+                  );
+                } else {
+                  console.log(
+                    `Extension: Created group menu "${groupName}":`,
+                    groupId
+                  );
+                }
+              }
             );
           });
         } else {
@@ -325,6 +414,7 @@ class BackgroundService {
   async hideContextMenus() {
     try {
       await chrome.contextMenus.removeAll();
+      console.log("Extension: Context menus hidden successfully");
     } catch (error) {
       console.error("Error hiding context menus:", error);
     }
@@ -432,10 +522,21 @@ class BackgroundService {
       }
 
       const keywords = keywordText
-        .split(/[,;\/\n\r\t|]+/)
+        .split(/[,;\n\r\t|]+/)
         .map((k) => k.trim())
         .filter((k) => k.length > 0 && /\S/.test(k))
         .flatMap((k) => {
+          if (k.includes("/")) {
+            if (/\w\/\w/.test(k)) {
+              return [k];
+            } else {
+              return k
+                .split("/")
+                .map((part) => part.trim())
+                .filter((part) => part.length > 0);
+            }
+          }
+
           return k
             .split(/\s{2,}/)
             .map((word) => word.trim())

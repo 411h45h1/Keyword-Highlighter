@@ -5,23 +5,35 @@ class KeywordHighlighter {
     this.highlightedElements = new Set();
     this.observer = null;
     this.lastProfileSignature = null;
+    this.debugMode = true;
+    this.regexCache = new Map();
     this.init();
   }
 
+  log(...args) {
+    if (this.debugMode) {
+      console.log(...args);
+    }
+  }
+
+  logError(...args) {
+    console.error(...args);
+  }
+
   async init() {
-    console.log("=== CONTENT SCRIPT INITIALIZING ===");
+    this.log("=== CONTENT SCRIPT INITIALIZING ===");
     await this.loadSettings();
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
     this.setupDOMObserver();
     this.setupUrlChangeDetection();
 
     if (this.isEnabled) {
-      console.log("Extension: Extension is enabled, highlighting page on init");
+      this.log("Extension: Extension is enabled, highlighting page on init");
       this.highlightPage();
       const profiles = this.findAllMatchingProfiles();
       this.lastProfileSignature = this.getProfilesSignature(profiles);
     } else {
-      console.log("Extension: Extension is disabled on init");
+      this.log("Extension: Extension is disabled on init");
     }
 
     this.notifyUrlChange();
@@ -917,23 +929,56 @@ class KeywordHighlighter {
 
     const textNodes = [];
     let node;
-    while ((node = walker.nextNode())) {
+    let nodeCount = 0;
+    const maxNodes = 2000;
+
+    while ((node = walker.nextNode()) && nodeCount < maxNodes) {
       textNodes.push(node);
+      nodeCount++;
     }
 
-    console.log(`Extension: Found ${textNodes.length} text nodes to process`);
+    console.log(
+      `Extension: Found ${textNodes.length} text nodes to process (max: ${maxNodes})`
+    );
 
-    for (const textNode of textNodes) {
-      this.highlightTextNodeWithMap(textNode, keywordColorMap, exactCase);
-    }
+    const batchSize = 50;
+    let currentIndex = 0;
 
-    if (rootElement) {
-      rootElement.setAttribute("data-highlighted", "true");
-    }
+    const processBatch = () => {
+      const end = Math.min(currentIndex + batchSize, textNodes.length);
+
+      for (let i = currentIndex; i < end; i++) {
+        const textNode = textNodes[i];
+        if (textNode && textNode.parentNode) {
+          this.highlightTextNodeWithMap(textNode, keywordColorMap, exactCase);
+        } else {
+          console.log(
+            "Extension: Skipping disconnected text node in batch processing"
+          );
+        }
+      }
+
+      currentIndex = end;
+
+      if (currentIndex < textNodes.length) {
+        requestIdleCallback(processBatch, { timeout: 16 });
+      } else {
+        if (rootElement) {
+          rootElement.setAttribute("data-highlighted", "true");
+        }
+      }
+    };
+
+    processBatch();
   }
 
   highlightTextNodeWithMap(textNode, keywordColorMap, exactCase = false) {
     if (!textNode || keywordColorMap.size === 0) {
+      return;
+    }
+
+    if (!textNode.parentNode) {
+      console.log("Extension: Text node has no parent, skipping processing");
       return;
     }
 
@@ -953,16 +998,66 @@ class KeywordHighlighter {
 
       console.log("Extension: Keywords sorted by length:", keywords);
 
-      const keywordPattern = keywords
-        .map((keyword) => this.createSmartBoundaryPattern(keyword))
-        .join("|");
+      const singleLetterKeywords = keywords.filter((k) => /^[a-zA-Z]$/.test(k));
+      const otherKeywords = keywords.filter((k) => !/^[a-zA-Z]$/.test(k));
 
-      if (keywordPattern) {
+      if (singleLetterKeywords.length > 0) {
+        const singleLetterPattern = singleLetterKeywords
+          .map((keyword) => this.createSmartBoundaryPattern(keyword))
+          .join("|");
+
+        const singleLetterRegex = new RegExp(`(${singleLetterPattern})`, "g");
+        console.log(
+          "Extension: Using case-sensitive regex for single letters:",
+          singleLetterRegex
+        );
+
+        highlightedText = highlightedText.replace(
+          singleLetterRegex,
+          (match) => {
+            hasHighlights = true;
+
+            const lookupKey = match.toLowerCase().trim();
+            const colors = keywordColorMap.get(lookupKey);
+
+            console.log(
+              `Extension: Found single letter match "${match}" (lookup key: "${lookupKey}") with colors:`,
+              colors
+            );
+
+            if (colors && colors.length > 0) {
+              if (colors.length === 1) {
+                return `<span class="keyword-highlight" style="background-color: ${colors[0]}; padding: 1px 2px;">${match}</span>`;
+              } else {
+                const uniqueColors = [...new Set(colors)];
+                console.log(
+                  `Extension: Creating blinking highlight for single letter "${match}" with unique colors:`,
+                  uniqueColors
+                );
+
+                const colorList = uniqueColors.join(",");
+                return `<span class="keyword-highlight keyword-highlight-blink" data-colors="${colorList}" style="background-color: ${
+                  uniqueColors[0]
+                }; padding: 1px 2px; animation: keyword-blink-${this.getColorHash(
+                  uniqueColors
+                )} 2s infinite;">${match}</span>`;
+              }
+            }
+
+            return match;
+          }
+        );
+      }
+
+      if (otherKeywords.length > 0) {
+        const keywordPattern = otherKeywords
+          .map((keyword) => this.createSmartBoundaryPattern(keyword))
+          .join("|");
+
         const regex = new RegExp(`(${keywordPattern})`, "gi");
         console.log(
-          "Extension: Using regex pattern:",
-          regex,
-          "always case-insensitive"
+          "Extension: Using case-insensitive regex for multi-character keywords:",
+          regex
         );
 
         highlightedText = highlightedText.replace(regex, (match) => {
@@ -1001,19 +1096,34 @@ class KeywordHighlighter {
 
       if (hasHighlights) {
         console.log("Extension: Applying highlights to text node");
+
+        if (!textNode.parentNode) {
+          console.log(
+            "Extension: Text node no longer has a parent, skipping highlight application"
+          );
+          return;
+        }
+
         const wrapper = document.createElement("span");
         wrapper.innerHTML = highlightedText;
         wrapper.setAttribute("data-keyword-wrapper", "true");
 
-        textNode.parentNode.replaceChild(wrapper, textNode);
-        this.highlightedElements.add(wrapper);
+        try {
+          textNode.parentNode.replaceChild(wrapper, textNode);
+          this.highlightedElements.add(wrapper);
 
-        this.createBlinkingAnimations(wrapper);
+          this.createBlinkingAnimations(wrapper);
 
-        console.log(
-          "Extension: Successfully applied highlights, total highlighted elements:",
-          this.highlightedElements.size
-        );
+          console.log(
+            "Extension: Successfully applied highlights, total highlighted elements:",
+            this.highlightedElements.size
+          );
+        } catch (error) {
+          console.log(
+            "Extension: Failed to replace text node (DOM may have changed):",
+            error.message
+          );
+        }
       } else {
         console.log("Extension: No highlights found in this text node");
       }
@@ -1139,11 +1249,31 @@ class KeywordHighlighter {
   }
 
   escapeRegex(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!this.regexCache.has(string)) {
+      this.regexCache.set(
+        string,
+        string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      );
+    }
+    return this.regexCache.get(string);
   }
 
   createSmartBoundaryPattern(keyword) {
+    const cacheKey = `boundary_${keyword}`;
+    if (this.regexCache.has(cacheKey)) {
+      return this.regexCache.get(cacheKey);
+    }
+
     const escaped = this.escapeRegex(keyword);
+
+    if (keyword.length === 1 && /^[a-zA-Z]$/.test(keyword)) {
+      const pattern = `\\b${escaped}\\b`;
+      this.regexCache.set(cacheKey, pattern);
+      console.log(
+        `Extension: Single letter keyword "${keyword}" using exact word boundary pattern: ${pattern}`
+      );
+      return pattern;
+    }
 
     if (keyword.includes(" ")) {
       const words = keyword.split(/\s+/).map((word) => {
@@ -1158,7 +1288,9 @@ class KeywordHighlighter {
         return pattern;
       });
 
-      return words.join("\\s+");
+      const result = words.join("\\s+");
+      this.regexCache.set(cacheKey, result);
+      return result;
     }
 
     const startsWithWord = /^\w/.test(keyword);
@@ -1169,14 +1301,20 @@ class KeywordHighlighter {
     if (startsWithWord) pattern = `\\b${pattern}`;
     if (endsWithWord) pattern = `${pattern}\\b`;
 
+    this.regexCache.set(cacheKey, pattern);
     return pattern;
   }
 
   clearHighlights() {
-    console.log("=== CLEARING HIGHLIGHTS ===");
+    if (this.regexCache.size > 1000) {
+      this.regexCache.clear();
+      this.log("Extension: Cleared regex cache to prevent memory leaks");
+    }
+
+    this.log("=== CLEARING HIGHLIGHTS ===");
 
     const highlightedSpans = document.querySelectorAll(".keyword-highlight");
-    console.log(
+    this.log(
       `Extension: Removing ${highlightedSpans.length} highlighted spans`
     );
 
@@ -1189,7 +1327,7 @@ class KeywordHighlighter {
     });
 
     const wrappers = document.querySelectorAll("[data-keyword-wrapper]");
-    console.log(`Extension: Removing ${wrappers.length} wrapper spans`);
+    this.log(`Extension: Removing ${wrappers.length} wrapper spans`);
 
     wrappers.forEach((wrapper) => {
       const parent = wrapper.parentNode;
@@ -1203,7 +1341,7 @@ class KeywordHighlighter {
     });
 
     const processedElements = document.querySelectorAll("[data-highlighted]");
-    console.log(
+    this.log(
       `Extension: Removing data-highlighted from ${processedElements.length} elements`
     );
 
@@ -1214,7 +1352,7 @@ class KeywordHighlighter {
     const animationStyles = document.querySelectorAll(
       'style[id^="keyword-blink-"]'
     );
-    console.log(
+    this.log(
       `Extension: Removing ${animationStyles.length} CSS animation styles`
     );
 
@@ -1223,7 +1361,7 @@ class KeywordHighlighter {
     });
 
     this.highlightedElements.clear();
-    console.log("Extension: Cleared all highlights and animations");
+    this.log("Extension: Cleared all highlights and animations");
   }
 
   showNotification(message, type = "success", details = "") {
@@ -1264,7 +1402,7 @@ class KeywordHighlighter {
       notification.classList.add("show");
     });
 
-    const timeout = type === "success" ? 3000 : 4000;
+    const timeout = type === "success" ? 1500 : 2000;
 
     setTimeout(() => {
       if (notification.parentNode) {
@@ -1274,7 +1412,7 @@ class KeywordHighlighter {
           if (notification.parentNode) {
             notification.remove();
           }
-        }, 300);
+        }, 150);
       }
     }, timeout);
 
@@ -1297,32 +1435,35 @@ class KeywordHighlighter {
         right: 20px !important;
         z-index: 999999 !important;
         background: #ffffff !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-        padding: 16px 20px !important;
-        min-width: 280px !important;
-        max-width: 380px !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+        padding: 12px 16px !important;
+        min-width: 260px !important;
+        max-width: 340px !important;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-        font-size: 14px !important;
-        line-height: 1.5 !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
         color: #2d3748 !important;
-        border-left: 4px solid #48bb78 !important;
+        border-left: 3px solid #48bb78 !important;
         opacity: 0 !important;
-        transition: opacity 0.2s ease-in-out !important;
+        transform: translateX(20px) !important;
+        transition: all 0.15s ease-out !important;
       }
 
       .context-menu-notification.success-clean {
-        border-left: 4px solid #48bb78 !important;
-        background: linear-gradient(135deg, #ffffff 0%, #f7fafc 100%) !important;
+        border-left: 3px solid #48bb78 !important;
+        background: #ffffff !important;
       }
 
       .context-menu-notification.show {
         opacity: 1 !important;
+        transform: translateX(0) !important;
       }
 
       .context-menu-notification.hide {
         opacity: 0 !important;
-        transition: opacity 0.2s ease-in-out !important;
+        transform: translateX(20px) !important;
+        transition: all 0.1s ease-in !important;
       }
 
       .context-menu-notification.error {
