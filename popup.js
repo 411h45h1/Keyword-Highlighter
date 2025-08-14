@@ -8,6 +8,7 @@ class KeywordHighlighterPopup {
     this.exactCase = false;
     this.cachedProfiles = [];
     this.keywordBank = [];
+    this.templates = this.getTemplates();
     this.init();
   }
 
@@ -68,6 +69,96 @@ class KeywordHighlighterPopup {
     return cleanupCount;
   }
 
+  // Helper function to parse keywords consistently across the extension
+  parseKeywords(text, includeNewlines = true) {
+    if (!text || typeof text !== "string") return [];
+
+    let separatorPattern;
+    if (includeNewlines) {
+      // For context menus and keyword bank - split on commas, slashes, newlines, semicolons, pipes, tabs
+      separatorPattern = /[,;\/\n\r\t|]+/;
+    } else {
+      // For regular form inputs - split only on commas and slashes
+      separatorPattern = /[,\/]+/;
+    }
+
+    return text
+      .split(separatorPattern)
+      .map((keyword) => keyword.trim())
+      .filter((keyword) => keyword.length > 0 && /\S/.test(keyword))
+      .flatMap((keyword) => {
+        // Handle cases where multiple keywords might be separated by multiple spaces
+        // This helps with list items that might have extra spacing
+        return keyword
+          .split(/\s{2,}/)
+          .map((word) => word.trim())
+          .filter((word) => word.length > 0);
+      })
+      .filter((keyword, index, array) => array.indexOf(keyword) === index); // Remove duplicates
+  }
+
+  // Helper function to parse URLs (different from keywords - no forward slash splitting)
+  parseUrls(text) {
+    if (!text || typeof text !== "string") return [];
+
+    // For URLs, only split on commas, newlines, semicolons, pipes, tabs - NOT forward slashes
+    const separatorPattern = /[,;\n\r\t|]+/;
+
+    return text
+      .split(separatorPattern)
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0 && /\S/.test(url))
+      .filter((url, index, array) => array.indexOf(url) === index); // Remove duplicates
+  }
+
+  // Helper function to group URL patterns by their color overrides
+  groupUrlPatternsByColors(urlPatterns) {
+    const groups = [];
+    const processed = new Set();
+
+    urlPatterns.forEach((pattern, index) => {
+      if (processed.has(index)) return;
+
+      const currentOverrides = JSON.stringify(pattern.colorOverrides || {});
+
+      // Handle both single URL strings and arrays of URLs
+      let urls;
+      if (Array.isArray(pattern.urlPattern)) {
+        urls = [...pattern.urlPattern];
+      } else {
+        urls = [pattern.urlPattern || pattern];
+      }
+
+      const group = {
+        urls: urls,
+        colorOverrides: pattern.colorOverrides || {},
+      };
+
+      // Find other patterns with the same color overrides
+      for (let i = index + 1; i < urlPatterns.length; i++) {
+        if (processed.has(i)) continue;
+
+        const otherOverrides = JSON.stringify(
+          urlPatterns[i].colorOverrides || {}
+        );
+        if (currentOverrides === otherOverrides) {
+          // Handle both single URL strings and arrays of URLs
+          if (Array.isArray(urlPatterns[i].urlPattern)) {
+            group.urls.push(...urlPatterns[i].urlPattern);
+          } else {
+            group.urls.push(urlPatterns[i].urlPattern || urlPatterns[i]);
+          }
+          processed.add(i);
+        }
+      }
+
+      groups.push(group);
+      processed.add(index);
+    });
+
+    return groups;
+  }
+
   setupEventListeners() {
     document
       .getElementById("extensionToggle")
@@ -119,6 +210,21 @@ class KeywordHighlighterPopup {
     document
       .getElementById("keywordBankText")
       .addEventListener("input", this.handleKeywordBankInput.bind(this));
+
+    // Templates event listeners
+    document
+      .getElementById("templatesButton")
+      .addEventListener("click", this.showTemplatesModal.bind(this));
+    document
+      .getElementById("closeTemplatesModal")
+      .addEventListener("click", this.hideTemplatesModal.bind(this));
+
+    // Close modal when clicking outside
+    document.getElementById("templatesModal").addEventListener("click", (e) => {
+      if (e.target.id === "templatesModal") {
+        this.hideTemplatesModal();
+      }
+    });
   }
 
   handleProfileTypeChange(event) {
@@ -192,10 +298,8 @@ class KeywordHighlighterPopup {
   }
 
   parseKeywordBankText(text) {
-    const keywords = text
-      .split(/[,\n\r;|\/]/)
-      .map((keyword) => keyword.trim())
-      .filter((keyword) => keyword.length > 0 && this.isValidKeyword(keyword))
+    const keywords = this.parseKeywords(text, true) // Use helper with newlines enabled
+      .filter((keyword) => this.isValidKeyword(keyword))
       .map((keyword) => (this.exactCase ? keyword : keyword.toLowerCase()))
       .filter((keyword, index, array) => array.indexOf(keyword) === index);
 
@@ -656,15 +760,17 @@ class KeywordHighlighterPopup {
         <button type="button" class="remove-pattern" title="Remove URL pattern">×</button>
       </div>
       <div class="form-group">
-        <label>URL Pattern:</label>
-        <input type="text" 
+        <label>URL Patterns:</label>
+        <textarea 
           class="pattern-url-input" 
-          placeholder="Enter URL pattern (use * as wildcard)..."
+          placeholder="Enter URL patterns, one per line or comma-separated (use * as wildcard)..."
           data-pattern="${patternId}"
-          value="${this.escapeHtml(urlValue)}"
           autocomplete="off"
-          required>
-        <small>Use * as wildcard at the end for matching subdirectories (e.g., https://example.com/*)</small>
+          rows="4"
+          required>${this.escapeHtml(urlValue)}</textarea>
+        <small>Use * as wildcard at the end for matching subdirectories. Enter multiple URLs on separate lines or comma-separated. Example:<br>
+        https://linkedin.com/jobs/*<br>
+        https://smartapply.indeed.com/*</small>
       </div>
       ${
         this.profileMode === "multi"
@@ -865,29 +971,82 @@ class KeywordHighlighterPopup {
     let hasValidPatterns = false;
     let hasValidGroups = false;
 
-    urlPatterns.forEach((pattern) => {
+    console.log("=== URL VALIDATION DEBUG ===");
+    urlPatterns.forEach((pattern, index) => {
       const urlInput = pattern.querySelector(".pattern-url-input");
-      if (
-        urlInput &&
-        urlInput.value.trim() &&
-        this.isValidUrlPattern(urlInput.value.trim())
-      ) {
-        hasValidPatterns = true;
+      if (urlInput && urlInput.value.trim()) {
+        const rawValue = urlInput.value.trim();
+        console.log(`Pattern ${index}: Raw value: "${rawValue}"`);
+
+        // Parse multiple URLs from the textarea using URL-specific parsing
+        const urlList = this.parseUrls(rawValue);
+        console.log(`Pattern ${index}: Parsed URLs:`, urlList);
+
+        // Check if at least one URL is valid
+        const validUrls = [];
+        const invalidUrls = [];
+
+        urlList.forEach((url) => {
+          const isValid = this.isValidUrlPattern(url);
+          console.log(`  URL "${url}" -> Valid: ${isValid}`);
+          if (isValid) {
+            validUrls.push(url);
+          } else {
+            invalidUrls.push(url);
+          }
+        });
+
+        console.log(
+          `Pattern ${index}: Valid URLs: ${validUrls.length}, Invalid URLs: ${invalidUrls.length}`
+        );
+
+        if (validUrls.length > 0) {
+          hasValidPatterns = true;
+        }
+      } else {
+        console.log(`Pattern ${index}: No URL input or empty value`);
       }
     });
 
-    if (keywordGroups.length > 0) {
-      hasValidGroups = true;
-    }
+    // Check if any keyword group has actual keywords
+    keywordGroups.forEach((groupDiv) => {
+      const keywords = this.getKeywordValues(groupDiv);
+      if (keywords && keywords.length > 0) {
+        hasValidGroups = true;
+      }
+    });
 
     const isValid = hasValidPatterns && hasValidGroups;
     saveButton.disabled = !isValid;
+
+    console.log("URL validation result:", {
+      hasValidPatterns,
+      hasValidGroups,
+      isValid,
+      saveButtonDisabled: saveButton.disabled,
+    });
+    console.log("=== END URL VALIDATION DEBUG ===");
   }
 
   async handleSaveProfile() {
+    console.log("=== HANDLE SAVE PROFILE CALLED ===");
+
+    const saveButton = document.getElementById("saveProfile");
+    if (saveButton.disabled) {
+      console.log("Save button is disabled, cannot save profile");
+      return;
+    }
+
     const profileName = document.getElementById("profileName").value.trim();
     const keywordGroups = document.querySelectorAll(".keyword-group");
     const urlPatterns = document.querySelectorAll(".url-pattern");
+
+    console.log("Save profile data:", {
+      profileName,
+      keywordGroupsCount: keywordGroups.length,
+      urlPatternsCount: urlPatterns.length,
+      currentEditingId: this.currentEditingId,
+    });
 
     let patterns = [];
     let hasValidPatterns = false;
@@ -897,11 +1056,19 @@ class KeywordHighlighterPopup {
 
       if (!urlInput || !urlInput.value.trim()) return;
 
-      const urlPattern = urlInput.value.trim();
+      const urlInputValue = urlInput.value.trim();
 
-      if (!this.isValidUrlPattern(urlPattern)) {
-        alert(`Please enter a valid URL pattern: ${urlPattern}`);
-        return;
+      // Parse comma-separated and newline-separated URLs using the URL-specific parser
+      const urlList = this.parseUrls(urlInputValue);
+
+      if (urlList.length === 0) return;
+
+      // Validate each URL
+      for (const urlPattern of urlList) {
+        if (!this.isValidUrlPattern(urlPattern)) {
+          alert(`Please enter a valid URL pattern: ${urlPattern}`);
+          return;
+        }
       }
 
       hasValidPatterns = true;
@@ -925,8 +1092,9 @@ class KeywordHighlighterPopup {
         }
       }
 
+      // Create a single pattern entry for all URLs from this textarea with the same color overrides
       patterns.push({
-        urlPattern: urlPattern,
+        urlPattern: urlList, // Store as array for multiple URLs
         colorOverrides: colorOverrides,
       });
     });
@@ -979,30 +1147,50 @@ class KeywordHighlighterPopup {
       profile.name = profileName;
     }
 
-    await this.saveProfile(profile);
-    this.resetForm();
-    await this.loadProfiles();
+    console.log("Final profile object to save:", profile);
+
+    try {
+      await this.saveProfile(profile);
+      console.log("Profile saved successfully");
+      this.resetForm();
+      await this.loadProfiles();
+      console.log("=== SAVE PROFILE COMPLETED ===");
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      alert("Error saving profile: " + error.message);
+    }
   }
 
   isValidUrlPattern(pattern) {
+    console.log(`    Validating URL pattern: "${pattern}"`);
     try {
       const urlToTest = pattern.replace(/\*$/, "");
+      console.log(`    URL after removing trailing *: "${urlToTest}"`);
+
       const url = new URL(urlToTest);
+      console.log(
+        `    Parsed URL: protocol="${url.protocol}", hostname="${url.hostname}"`
+      );
 
       if (!["http:", "https:", "file:"].includes(url.protocol)) {
+        console.log(`    INVALID: Protocol "${url.protocol}" not allowed`);
         return false;
       }
 
       if (url.protocol === "file:") {
+        console.log(`    VALID: File protocol accepted`);
         return true;
       }
 
       if (!url.hostname || url.hostname.length === 0) {
+        console.log(`    INVALID: No hostname or empty hostname`);
         return false;
       }
 
+      console.log(`    VALID: URL pattern accepted`);
       return true;
-    } catch {
+    } catch (error) {
+      console.log(`    INVALID: URL parsing failed - ${error.message}`);
       return false;
     }
   }
@@ -1032,10 +1220,26 @@ class KeywordHighlighterPopup {
 
     profiles.sort((a, b) => {
       const aLength = a.urlPatterns
-        ? Math.max(...a.urlPatterns.map((p) => p.urlPattern.length))
+        ? Math.max(
+            ...a.urlPatterns.map((p) => {
+              const urlPattern = p.urlPattern;
+              if (Array.isArray(urlPattern)) {
+                return Math.max(...urlPattern.map((u) => u.length));
+              }
+              return urlPattern?.length || 0;
+            })
+          )
         : a.urlPattern?.length || 0;
       const bLength = b.urlPatterns
-        ? Math.max(...b.urlPatterns.map((p) => p.urlPattern.length))
+        ? Math.max(
+            ...b.urlPatterns.map((p) => {
+              const urlPattern = p.urlPattern;
+              if (Array.isArray(urlPattern)) {
+                return Math.max(...urlPattern.map((u) => u.length));
+              }
+              return urlPattern?.length || 0;
+            })
+          )
         : b.urlPattern?.length || 0;
       return bLength - aLength;
     });
@@ -1480,10 +1684,9 @@ class KeywordHighlighterPopup {
   getKeywordValues(container) {
     const textarea = container.querySelector(".keyword-textarea");
     if (textarea && textarea.value.trim()) {
-      return textarea.value
-        .split(/[,\/]/)
-        .map((k) => k.trim())
-        .filter((k) => k.length > 0);
+      return this.parseKeywords(textarea.value.trim(), true).filter((k) =>
+        this.isValidKeyword(k)
+      );
     }
     return [];
   }
@@ -2528,11 +2731,24 @@ class KeywordHighlighterPopup {
                   urlPattern.colorOverrides[`group-${index}`]
                     ? urlPattern.colorOverrides[`group-${index}`]
                     : group.color;
-                const urlDisplay =
-                  (urlPattern.urlPattern || urlPattern).substring(0, 20) +
-                  ((urlPattern.urlPattern || urlPattern).length > 20
-                    ? "..."
-                    : "");
+
+                // Handle both string URLs and arrays of URLs
+                let urlDisplay;
+                const urlValue = urlPattern.urlPattern || urlPattern;
+                if (Array.isArray(urlValue)) {
+                  // For arrays, show the first URL
+                  urlDisplay = urlValue[0]
+                    ? urlValue[0].substring(0, 20) +
+                      (urlValue[0].length > 20 ? "..." : "")
+                    : "";
+                  if (urlValue.length > 1) {
+                    urlDisplay += ` (+${urlValue.length - 1} more)`;
+                  }
+                } else {
+                  urlDisplay =
+                    urlValue.substring(0, 20) +
+                    (urlValue.length > 20 ? "..." : "");
+                }
                 return `<span class="group-color-indicator multi-url-color" 
                   style="background-color: ${overrideColor};" 
                   title="Color for ${this.escapeHtml(urlDisplay)}"></span>`;
@@ -2596,14 +2812,8 @@ class KeywordHighlighterPopup {
       urlType = "multi";
       const urlCount = profile.urlPatterns.length;
 
-      const sortedPatterns = [...profile.urlPatterns].sort((a, b) => {
-        const urlA = (a.urlPattern || a).toLowerCase();
-        const urlB = (b.urlPattern || b).toLowerCase();
-        return urlA.localeCompare(urlB);
-      });
-
       if (urlCount === 1) {
-        const pattern = sortedPatterns[0];
+        const pattern = profile.urlPatterns[0];
         urlDisplayHTML = `
           <div class="profile-full-url">
             <span class="url-label">URL Pattern:</span>
@@ -2613,15 +2823,47 @@ class KeywordHighlighterPopup {
           </div>
         `;
       } else {
-        const urlList = sortedPatterns
-          .map((pattern) => this.escapeHtml(pattern.urlPattern || pattern))
-          .join(", ");
-        urlDisplayHTML = `
-          <div class="profile-full-url">
-            <span class="url-label">URL Patterns:</span>
-            <div class="url-value">${urlList}</div>
-          </div>
-        `;
+        // Group URLs by color overrides for cleaner display
+        const urlGroups = this.groupUrlPatternsByColors(profile.urlPatterns);
+
+        if (urlGroups.length === 1) {
+          // All URLs have the same color overrides, display as comma-separated
+          const urlList = urlGroups[0].urls
+            .map((url) => this.escapeHtml(url))
+            .join(", ");
+          urlDisplayHTML = `
+            <div class="profile-full-url">
+              <span class="url-label">URL Patterns:</span>
+              <div class="url-value">${urlList}</div>
+            </div>
+          `;
+        } else {
+          // Different color overrides, show each group separately
+          const groupsHTML = urlGroups
+            .map((group, index) => {
+              const urlList = group.urls
+                .map((url) => this.escapeHtml(url))
+                .join(", ");
+              const hasOverrides = Object.keys(group.colorOverrides).length > 0;
+              const groupLabel = hasOverrides
+                ? `URL Group ${index + 1}`
+                : "URLs";
+
+              return `
+              <div class="url-item">
+                <span class="url-label">${groupLabel}:</span>
+                <div class="url-value">${urlList}</div>
+              </div>
+            `;
+            })
+            .join("");
+
+          urlDisplayHTML = `
+            <div class="profile-full-url">
+              ${groupsHTML}
+            </div>
+          `;
+        }
       }
     } else if (profile.urlPattern) {
       urlDisplayHTML = `
@@ -2764,8 +3006,35 @@ class KeywordHighlighterPopup {
     this.urlPatternCounter = 0;
 
     if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
-      profile.urlPatterns.forEach((pattern) => {
-        this.addUrlPattern(pattern.urlPattern || pattern);
+      // Group URLs by their color overrides
+      const urlGroups = this.groupUrlPatternsByColors(profile.urlPatterns);
+
+      urlGroups.forEach((group) => {
+        // Join URLs with commas for display in a single input
+        const urlString = group.urls.join(", ");
+        const patternDiv = this.addUrlPattern(urlString);
+
+        // Apply color overrides if in multi-URL mode
+        if (
+          this.profileMode === "multi" &&
+          Object.keys(group.colorOverrides).length > 0
+        ) {
+          setTimeout(() => {
+            const patternColors = patternDiv.querySelector(".pattern-colors");
+            if (patternColors) {
+              Object.entries(group.colorOverrides).forEach(
+                ([groupId, color]) => {
+                  const colorInput = patternColors.querySelector(
+                    `input[data-group="${groupId}"]`
+                  );
+                  if (colorInput) {
+                    colorInput.value = color;
+                  }
+                }
+              );
+            }
+          }, 50); // Small delay to ensure color override inputs are created
+        }
       });
     } else if (profile.urlPattern) {
       this.addUrlPattern(profile.urlPattern);
@@ -2810,10 +3079,6 @@ class KeywordHighlighterPopup {
       setTimeout(() => {
         profile.urlPatterns.forEach((pattern, patternIndex) => {
           if (pattern.colorOverrides) {
-            console.log(
-              `Loading color overrides for pattern ${patternIndex}:`,
-              pattern.colorOverrides
-            );
             const patternId = `pattern-${patternIndex}`;
             const patternDiv = document.querySelector(
               `[data-pattern-id="${patternId}"]`
@@ -2842,7 +3107,6 @@ class KeywordHighlighterPopup {
                 }
               );
             } else {
-              console.log(`Pattern div not found for pattern-${patternIndex}`);
             }
           }
         });
@@ -2938,6 +3202,540 @@ class KeywordHighlighterPopup {
 
     await this.loadProfiles();
     this.notifyContentScripts();
+  }
+
+  // Template Methods
+  getTemplates() {
+    return [
+      {
+        id: "job-hunt",
+        name: "Job Hunt",
+        description:
+          "Perfect for job hunting on tech job boards. Includes common programming languages, frameworks, and experience levels suitable for various tech roles.",
+        profileName: "Job Hunt Multi-Site",
+        urlPatterns: [
+          "https://ca.indeed.com/*",
+          "https://www.linkedin.com/jobs/search-results/*",
+          "https://www.linkedin.com/jobs/search/*",
+          "https://jobs.lever.co/*",
+          "https://boards.greenhouse.io/*",
+        ],
+        keywordGroups: [
+          {
+            name: "Most Experience",
+            color: "#4CAF50",
+            keywords: [
+              "JavaScript",
+              "React",
+              "Node.js",
+              "Python",
+              "TypeScript",
+              "AWS",
+              "Docker",
+              "Git",
+            ],
+          },
+          {
+            name: "Medium Experience",
+            color: "#FF9800",
+            keywords: [
+              "Vue.js",
+              "Angular",
+              "Express.js",
+              "MongoDB",
+              "PostgreSQL",
+              "Redis",
+              "Kubernetes",
+            ],
+          },
+          {
+            name: "Low Experience",
+            color: "#2196F3",
+            keywords: [
+              "GraphQL",
+              "Microservices",
+              "DevOps",
+              "CI/CD",
+              "Terraform",
+              "Go",
+              "Rust",
+            ],
+          },
+          {
+            name: "Green Flags",
+            color: "#8BC34A",
+            keywords: [
+              "remote",
+              "work-life balance",
+              "mentorship",
+              "learning opportunities",
+              "career growth",
+            ],
+          },
+          {
+            name: "Red Flags",
+            color: "#F44336",
+            keywords: [
+              "rockstar",
+              "ninja",
+              "guru",
+              "unpaid overtime",
+              "fast-paced environment",
+            ],
+          },
+        ],
+        keywordBank:
+          "JavaScript, TypeScript, React, Vue.js, Angular, Node.js, Express.js, Python, Django, Flask, Java, Spring, C#, .NET, PHP, Laravel, Go, Rust, Swift, Kotlin, SQL, MySQL, PostgreSQL, MongoDB, Redis, GraphQL, REST API, HTML, CSS, SASS, SCSS, Bootstrap, Tailwind, Git, GitHub, GitLab, Docker, Kubernetes, AWS, Azure, GCP, CI/CD, Jenkins, DevOps, Agile, Scrum, TDD, Unit Testing, Integration Testing, Microservices, API Design, Database Design, System Design, Machine Learning, AI, Data Science, Frontend, Backend, Full Stack, Mobile Development, Web Development, Cloud Computing, Serverless, Lambda, Terraform, Ansible, Linux, Unix, Bash, Shell Scripting, Monitoring, Logging, Performance Optimization, Security, OAuth, JWT, HTTPS, SSL, Websockets, Real-time, Caching, Load Balancing, CDN, Nginx, Apache",
+      },
+      {
+        id: "data-scientist",
+        name: "Data Scientist",
+        description:
+          "Tailored for data science and analytics roles. Covers machine learning, statistical tools, and data technologies.",
+        profileName: "Data Science & Analytics",
+        urlPatterns: [
+          "https://ca.indeed.com/*",
+          "https://www.linkedin.com/jobs/search-results/*",
+          "https://www.kaggle.com/jobs/*",
+          "https://jobs.lever.co/*",
+        ],
+        keywordGroups: [
+          {
+            name: "Programming & Tools",
+            color: "#4CAF50",
+            keywords: [
+              "Python",
+              "R",
+              "SQL",
+              "Jupyter",
+              "pandas",
+              "NumPy",
+              "scikit-learn",
+              "TensorFlow",
+            ],
+          },
+          {
+            name: "Machine Learning",
+            color: "#FF9800",
+            keywords: [
+              "Deep Learning",
+              "Neural Networks",
+              "NLP",
+              "Computer Vision",
+              "MLOps",
+              "Feature Engineering",
+            ],
+          },
+          {
+            name: "Data & Analytics",
+            color: "#2196F3",
+            keywords: [
+              "Big Data",
+              "Spark",
+              "Hadoop",
+              "Tableau",
+              "Power BI",
+              "Statistics",
+              "A/B Testing",
+            ],
+          },
+          {
+            name: "Cloud & Infrastructure",
+            color: "#9C27B0",
+            keywords: [
+              "AWS",
+              "Azure",
+              "GCP",
+              "Docker",
+              "Kubernetes",
+              "Airflow",
+              "Data Pipeline",
+            ],
+          },
+          {
+            name: "Domain Knowledge",
+            color: "#607D8B",
+            keywords: [
+              "Business Intelligence",
+              "Data Warehousing",
+              "ETL",
+              "Data Mining",
+              "Predictive Analytics",
+            ],
+          },
+        ],
+        keywordBank:
+          "Python, R, SQL, Java, Scala, Julia, MATLAB, SAS, SPSS, Jupyter, IPython, pandas, NumPy, SciPy, matplotlib, seaborn, plotly, scikit-learn, TensorFlow, PyTorch, Keras, XGBoost, LightGBM, CatBoost, NLTK, spaCy, OpenCV, Hugging Face, Machine Learning, Deep Learning, Neural Networks, CNN, RNN, LSTM, GAN, Transformer, BERT, GPT, Computer Vision, Natural Language Processing, NLP, Reinforcement Learning, Supervised Learning, Unsupervised Learning, Classification, Regression, Clustering, Dimensionality Reduction, Feature Engineering, Feature Selection, Model Selection, Hyperparameter Tuning, Cross Validation, A/B Testing, Statistical Analysis, Hypothesis Testing, Bayesian Analysis, Time Series Analysis, Forecasting, Big Data, Apache Spark, Hadoop, Hive, Pig, Kafka, Elasticsearch, MongoDB, Cassandra, Redis, PostgreSQL, MySQL, SQLite, Data Warehousing, ETL, ELT, Data Pipeline, Data Lake, Data Mesh, Apache Airflow, Luigi, Prefect, dbt, Tableau, Power BI, Looker, QlikView, D3.js, Grafana, AWS, S3, EC2, EMR, Redshift, Glue, SageMaker, Azure, Azure ML, Google Cloud, BigQuery, Dataflow, Vertex AI, Docker, Kubernetes, Git, GitHub, CI/CD, MLOps, Model Deployment, Model Monitoring, Data Governance, Data Quality, Business Intelligence, KPI, Metrics, Dashboard, Reporting, Data Visualization, Statistical Modeling, Predictive Analytics, Prescriptive Analytics, Descriptive Analytics, Data Mining, Web Scraping, API, JSON, XML, REST, GraphQL",
+      },
+      {
+        id: "digital-marketing",
+        name: "Digital Marketing",
+        description:
+          "Comprehensive template for digital marketing professionals covering SEO, SEM, social media, and analytics.",
+        profileName: "Digital Marketing Professional",
+        urlPatterns: [
+          "https://ca.indeed.com/*",
+          "https://www.linkedin.com/jobs/search-results/*",
+          "https://jobs.lever.co/*",
+          "https://angel.co/jobs/*",
+        ],
+        keywordGroups: [
+          {
+            name: "SEO & Content",
+            color: "#4CAF50",
+            keywords: [
+              "SEO",
+              "Content Marketing",
+              "Keyword Research",
+              "Google Analytics",
+              "WordPress",
+              "Copywriting",
+            ],
+          },
+          {
+            name: "Paid Advertising",
+            color: "#FF9800",
+            keywords: [
+              "Google Ads",
+              "Facebook Ads",
+              "PPC",
+              "Display Advertising",
+              "Retargeting",
+              "Conversion Optimization",
+            ],
+          },
+          {
+            name: "Social Media",
+            color: "#2196F3",
+            keywords: [
+              "Social Media Marketing",
+              "Instagram",
+              "Facebook",
+              "Twitter",
+              "LinkedIn",
+              "TikTok",
+              "Influencer Marketing",
+            ],
+          },
+          {
+            name: "Analytics & Tools",
+            color: "#9C27B0",
+            keywords: [
+              "Google Analytics",
+              "Google Tag Manager",
+              "HubSpot",
+              "Mailchimp",
+              "Hootsuite",
+              "Canva",
+            ],
+          },
+          {
+            name: "Strategy & Growth",
+            color: "#607D8B",
+            keywords: [
+              "Marketing Strategy",
+              "Brand Management",
+              "Lead Generation",
+              "Email Marketing",
+              "Marketing Automation",
+            ],
+          },
+        ],
+        keywordBank:
+          "SEO, SEM, Content Marketing, Social Media Marketing, Digital Marketing, Marketing Strategy, Brand Management, Google Analytics, Google Ads, Google Tag Manager, Facebook Ads, Instagram Marketing, LinkedIn Marketing, Twitter Marketing, TikTok Marketing, YouTube Marketing, Influencer Marketing, Email Marketing, Marketing Automation, Lead Generation, Conversion Optimization, A/B Testing, Landing Page Optimization, PPC, Pay Per Click, Display Advertising, Retargeting, Remarketing, Affiliate Marketing, Partnership Marketing, Growth Hacking, Customer Acquisition, Customer Retention, CRM, HubSpot, Salesforce, Mailchimp, Constant Contact, Hootsuite, Buffer, Sprout Social, Canva, Adobe Creative Suite, Photoshop, Illustrator, Video Marketing, Podcast Marketing, Webinar Marketing, Event Marketing, PR, Public Relations, Media Relations, Press Release, Copywriting, Content Creation, Blog Writing, Keyword Research, Link Building, Technical SEO, Local SEO, E-commerce SEO, WordPress, Shopify, WooCommerce, Magento, HTML, CSS, JavaScript, Google Search Console, SEMrush, Ahrefs, Moz, Screaming Frog, Hotjar, Crazy Egg, Optimizely, Unbounce, Leadpages, ClickFunnels, Zapier, IFTTT, Marketing Analytics, ROI, ROAS, CTR, CPC, CPM, CPA, LTV, CAC, Funnel Analysis, Customer Journey Mapping, Persona Development, Market Research, Competitive Analysis, SWOT Analysis, Marketing Mix, 4Ps, Branding, Brand Positioning, Brand Identity, Visual Identity, Logo Design, Marketing Campaigns, Campaign Management, Project Management, Agile Marketing, Marketing Operations",
+      },
+      {
+        id: "product-manager",
+        name: "Product Manager",
+        description:
+          "Ideal for product management roles with focus on strategy, analytics, and cross-functional collaboration.",
+        profileName: "Product Management",
+        urlPatterns: [
+          "https://ca.indeed.com/*",
+          "https://www.linkedin.com/jobs/search-results/*",
+          "https://jobs.lever.co/*",
+          "https://angel.co/jobs/*",
+          "https://boards.greenhouse.io/*",
+        ],
+        keywordGroups: [
+          {
+            name: "Product Strategy",
+            color: "#4CAF50",
+            keywords: [
+              "Product Strategy",
+              "Roadmap",
+              "Vision",
+              "OKRs",
+              "KPIs",
+              "Product Analytics",
+              "User Research",
+            ],
+          },
+          {
+            name: "Technical Skills",
+            color: "#FF9800",
+            keywords: [
+              "SQL",
+              "API",
+              "Agile",
+              "Scrum",
+              "JIRA",
+              "A/B Testing",
+              "Data Analysis",
+              "Wireframing",
+            ],
+          },
+          {
+            name: "Business Acumen",
+            color: "#2196F3",
+            keywords: [
+              "Go-to-Market",
+              "Pricing",
+              "Competitive Analysis",
+              "Market Research",
+              "Business Case",
+              "P&L",
+            ],
+          },
+          {
+            name: "Collaboration",
+            color: "#9C27B0",
+            keywords: [
+              "Cross-functional",
+              "Stakeholder Management",
+              "Leadership",
+              "Communication",
+              "Prioritization",
+            ],
+          },
+          {
+            name: "Tools & Platforms",
+            color: "#607D8B",
+            keywords: [
+              "Figma",
+              "Miro",
+              "Confluence",
+              "Amplitude",
+              "Mixpanel",
+              "Google Analytics",
+              "Tableau",
+            ],
+          },
+        ],
+        keywordBank:
+          "Product Management, Product Strategy, Product Planning, Product Development, Product Launch, Product Marketing, Product Analytics, Product Metrics, Product Roadmap, Product Vision, Product Requirements, PRD, Product Specification, User Stories, Epic, Feature Definition, Product Backlog, Prioritization, Product Lifecycle, Go-to-Market, GTM, Market Research, Competitive Analysis, User Research, User Experience, UX, User Interface, UI, Customer Journey, Customer Development, Customer Feedback, Customer Success, Stakeholder Management, Cross-functional Collaboration, Agile, Scrum, Kanban, Sprint Planning, Retrospective, JIRA, Confluence, Trello, Asana, Monday.com, Notion, Figma, Sketch, InVision, Miro, Lucidchart, Balsamiq, Wireframing, Prototyping, Mockups, Design Thinking, MVP, Minimum Viable Product, A/B Testing, Experimentation, Hypothesis Testing, Data Analysis, SQL, Python, R, Excel, Google Sheets, Google Analytics, Amplitude, Mixpanel, Heap, Segment, Tableau, Power BI, Looker, KPI, Key Performance Indicators, OKR, Objectives and Key Results, Metrics, Conversion Rate, Retention Rate, Churn Rate, LTV, Customer Lifetime Value, CAC, Customer Acquisition Cost, ARPU, Monthly Active Users, MAU, DAU, Daily Active Users, API, REST, GraphQL, JSON, Database, Cloud Computing, AWS, Azure, SaaS, B2B, B2C, E-commerce, Mobile App, Web Application, iOS, Android, Technical Specifications, System Architecture, Integration, Third-party, SDK, Business Case, ROI, Return on Investment, P&L, Profit and Loss, Budget, Forecasting, Pricing Strategy, Revenue Model, Market Sizing, TAM, SAM, SOM, Persona, User Segmentation, Customer Segmentation, Journey Mapping, Pain Points, Jobs to be Done, JTBD, Feature Flag, Release Management, Beta Testing, User Acceptance Testing, UAT, QA, Quality Assurance, Risk Management, Compliance, Privacy, GDPR, Leadership, Team Management, Mentoring, Communication, Presentation, Storytelling, Influence, Negotiation, Decision Making, Problem Solving, Critical Thinking, Innovation, Creativity",
+      },
+      {
+        id: "ux-designer",
+        name: "UX/UI Designer",
+        description:
+          "Complete template for UX/UI design roles covering design tools, methodologies, and user research.",
+        profileName: "UX/UI Design Professional",
+        urlPatterns: [
+          "https://ca.indeed.com/*",
+          "https://www.linkedin.com/jobs/search-results/*",
+          "https://dribbble.com/jobs/*",
+          "https://www.behance.net/jobboard/*",
+          "https://jobs.lever.co/*",
+        ],
+        keywordGroups: [
+          {
+            name: "Design Tools",
+            color: "#4CAF50",
+            keywords: [
+              "Figma",
+              "Sketch",
+              "Adobe XD",
+              "InVision",
+              "Principle",
+              "Framer",
+              "Zeplin",
+              "Abstract",
+            ],
+          },
+          {
+            name: "UX Methods",
+            color: "#FF9800",
+            keywords: [
+              "User Research",
+              "Usability Testing",
+              "Wireframing",
+              "Prototyping",
+              "Journey Mapping",
+              "Persona Development",
+            ],
+          },
+          {
+            name: "UI & Visual",
+            color: "#2196F3",
+            keywords: [
+              "Visual Design",
+              "Design Systems",
+              "Typography",
+              "Color Theory",
+              "Iconography",
+              "Illustration",
+            ],
+          },
+          {
+            name: "Technical Skills",
+            color: "#9C27B0",
+            keywords: [
+              "HTML",
+              "CSS",
+              "JavaScript",
+              "React",
+              "Responsive Design",
+              "Accessibility",
+              "Design Tokens",
+            ],
+          },
+          {
+            name: "Collaboration",
+            color: "#607D8B",
+            keywords: [
+              "Design Thinking",
+              "Agile",
+              "Cross-functional",
+              "Stakeholder Management",
+              "Design Critique",
+            ],
+          },
+        ],
+        keywordBank:
+          "UX Design, UI Design, User Experience, User Interface, Interaction Design, Visual Design, Graphic Design, Web Design, Mobile Design, App Design, Responsive Design, Design Systems, Component Library, Style Guide, Brand Guidelines, Design Tokens, Figma, Sketch, Adobe XD, Adobe Creative Suite, Photoshop, Illustrator, InDesign, After Effects, Principle, Framer, ProtoPie, InVision, Marvel, Zeplin, Abstract, Avocode, User Research, User Testing, Usability Testing, A/B Testing, Card Sorting, Tree Testing, First Click Testing, 5 Second Test, User Interviews, Focus Groups, Surveys, Questionnaires, Analytics, Heatmaps, User Personas, Customer Journey Mapping, User Flow, Task Flow, Site Map, Information Architecture, IA, Wireframing, Low-fidelity Wireframes, High-fidelity Wireframes, Prototyping, Interactive Prototypes, Clickable Prototypes, Paper Prototyping, Digital Prototyping, MVP, Minimum Viable Product, Design Thinking, Human-Centered Design, Lean UX, Agile UX, Design Sprint, Google Design Sprint, Double Diamond, Jobs to be Done, JTBD, Empathy Mapping, Affinity Mapping, Problem Definition, Ideation, Brainstorming, Sketching, Storyboarding, Mood Board, Inspiration Board, Typography, Font Pairing, Hierarchy, Contrast, Color Theory, Color Palette, Accessibility, WCAG, Section 508, Screen Reader, Keyboard Navigation, Color Contrast, Alt Text, Inclusive Design, Universal Design, Mobile First, Progressive Enhancement, Grid System, Layout, Composition, White Space, Visual Hierarchy, Gestalt Principles, F-Pattern, Z-Pattern, Scannable Design, Iconography, Icon Design, Illustration, Custom Illustrations, Stock Photos, Image Optimization, SVG, PNG, JPG, GIF, Animation, Micro-interactions, Transitions, Loading States, Empty States, Error States, Onboarding, Progressive Disclosure, Design Patterns, UI Patterns, Navigation, Menu Design, Button Design, Form Design, Modal Design, Dropdown, Carousel, Tabs, Accordion, Search, Filters, Pagination, HTML, CSS, SASS, SCSS, JavaScript, jQuery, React, Vue, Angular, Bootstrap, Foundation, Material Design, iOS Human Interface Guidelines, Android Material Design, Atomic Design, Component-Based Design, Design System, Pattern Library, Cross-functional Collaboration, Stakeholder Management, Design Critique, Design Review, Design Handoff, Developer Handoff, Quality Assurance, QA, Design Testing, Design Validation, Iteration, Design Process, Design Methodology, Design Strategy, Business Goals, User Goals, KPI, Metrics, Conversion Rate, User Satisfaction, Task Completion Rate, Time on Task, Error Rate, Portfolio, Case Study, Design Documentation, Design Specs, Red Lines, Design Tokens, Version Control, Git, Design Ops, Design System Management",
+      },
+    ];
+  }
+
+  showTemplatesModal() {
+    const modal = document.getElementById("templatesModal");
+    const templatesList = document.getElementById("templatesList");
+
+    // Clear existing templates
+    templatesList.innerHTML = "";
+
+    // Generate template cards
+    this.templates.forEach((template) => {
+      const templateCard = this.createTemplateCard(template);
+      templatesList.appendChild(templateCard);
+    });
+
+    modal.style.display = "flex";
+    document.body.style.overflow = "hidden"; // Prevent background scrolling
+  }
+
+  hideTemplatesModal() {
+    const modal = document.getElementById("templatesModal");
+    modal.style.display = "none";
+    document.body.style.overflow = "auto"; // Restore scrolling
+  }
+
+  createTemplateCard(template) {
+    const card = document.createElement("div");
+    card.className = "template-card";
+    card.addEventListener("click", () => this.applyTemplate(template));
+
+    card.innerHTML = `
+      <div class="template-title">${template.name}</div>
+      <div class="template-description">${template.description}</div>
+      <div class="template-preview">
+        <div class="template-preview-section">
+          <div class="template-preview-label">URL Patterns</div>
+          <div class="template-preview-content">
+            <div class="template-url-list">
+              ${template.urlPatterns
+                .slice(0, 3)
+                .map(
+                  (url) =>
+                    `<div class="template-url-item">${this.formatUrlForDisplay(
+                      url
+                    )}</div>`
+                )
+                .join("")}
+              ${
+                template.urlPatterns.length > 3
+                  ? `<div class="template-url-item">+${
+                      template.urlPatterns.length - 3
+                    } more...</div>`
+                  : ""
+              }
+            </div>
+          </div>
+        </div>
+        <div class="template-preview-section">
+          <div class="template-preview-label">Keyword Groups</div>
+          <div class="template-preview-content">
+            <div class="template-keyword-groups">
+              ${template.keywordGroups
+                .map(
+                  (group) =>
+                    `<span class="template-keyword-group-tag" style="background-color: ${group.color}20; border: 1px solid ${group.color}; color: ${group.color};">${group.name}</span>`
+                )
+                .join("")}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    return card;
+  }
+
+  formatUrlForDisplay(url) {
+    // Remove protocol and simplify for display
+    return url.replace(/^https?:\/\//, "").replace(/\/\*$/, "/...");
+  }
+
+  async applyTemplate(template) {
+    // Reset form first
+    this.resetForm();
+
+    // Set profile name
+    document.getElementById("profileName").value = template.profileName;
+
+    // Set to multi-URL mode if template has multiple URLs
+    if (template.urlPatterns.length > 1) {
+      document.getElementById("multiUrlToggle").checked = true;
+      this.profileMode = "multi";
+      this.updateFormMode();
+    }
+
+    // Clear existing URL patterns and keyword groups
+    document.getElementById("urlPatterns").innerHTML = "";
+    document.getElementById("keywordGroups").innerHTML = "";
+    this.urlPatternCounter = 0;
+    this.keywordGroupCounter = 0;
+
+    // Add URL patterns
+    if (template.urlPatterns.length > 0) {
+      // Join all URL patterns with commas for a single input
+      const urlString = template.urlPatterns.join(", ");
+      this.addUrlPattern(urlString);
+    }
+
+    // Add keyword groups
+    template.keywordGroups.forEach((group) => {
+      const keywordString = group.keywords.join(", ");
+      this.addKeywordGroup(group.color, keywordString, group.name);
+    });
+
+    // Set keyword bank
+    if (template.keywordBank) {
+      document.getElementById("keywordBankText").value = template.keywordBank;
+      this.handleProcessKeywordBank();
+    }
+
+    // Hide modal
+    this.hideTemplatesModal();
+
+    // Validate form
+    this.validateForm();
+
+    // Scroll to top of form
+    document
+      .querySelector(".profile-form")
+      .scrollIntoView({ behavior: "smooth" });
   }
 }
 

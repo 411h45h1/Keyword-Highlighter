@@ -179,13 +179,20 @@ class BackgroundService {
 
       if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
         for (const urlPattern of profile.urlPatterns) {
-          const pattern = urlPattern.urlPattern || urlPattern;
-          console.log(`Extension: Testing pattern "${pattern}" against URL`);
-          if (this.urlMatches(currentUrl, pattern)) {
-            console.log(`Extension: ✓ Pattern "${pattern}" matches!`);
-            matches = true;
-            break;
+          const patterns = Array.isArray(urlPattern.urlPattern)
+            ? urlPattern.urlPattern
+            : [urlPattern.urlPattern || urlPattern];
+
+          for (const pattern of patterns) {
+            console.log(`Extension: Testing pattern "${pattern}" against URL`);
+            if (this.urlMatches(currentUrl, pattern)) {
+              console.log(`Extension: ✓ Pattern "${pattern}" matches!`);
+              matches = true;
+              break;
+            }
           }
+
+          if (matches) break;
         }
       } else if (profile.urlPattern) {
         console.log(
@@ -425,9 +432,16 @@ class BackgroundService {
       }
 
       const keywords = keywordText
-        .split(/[,;\/\n]+/)
+        .split(/[,;\/\n\r\t|]+/)
         .map((k) => k.trim())
-        .filter((k) => k.length > 0 && /\S/.test(k));
+        .filter((k) => k.length > 0 && /\S/.test(k))
+        .flatMap((k) => {
+          return k
+            .split(/\s{2,}/)
+            .map((word) => word.trim())
+            .filter((word) => word.length > 0);
+        })
+        .filter((keyword, index, array) => array.indexOf(keyword) === index);
 
       console.log(
         `Extension: Parsed ${keywords.length} keywords from "${keywordText}":`,

@@ -46,7 +46,16 @@
 
         <!-- Profile Form -->
         <div class="profile-form" id="profileForm">
-          <h3 id="formTitle">Add New Profile</h3>
+          <div class="form-title-with-templates">
+            <h3 id="formTitle">Add New Profile</h3>
+            <button
+              type="button"
+              id="templatesButton"
+              class="btn-info btn-small"
+            >
+              📋 Templates
+            </button>
+          </div>
 
           <!-- Profile Type Toggle -->
           <div class="profile-type-toggle">
@@ -184,6 +193,26 @@
           >
             <h4>Processed Keywords:</h4>
             <div id="keywordBankList" class="keyword-bank-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates Modal -->
+      <div id="templatesModal" class="templates-modal" style="display: none">
+        <div class="templates-modal-content">
+          <div class="templates-modal-header">
+            <h3>Profile Templates</h3>
+            <button type="button" id="closeTemplatesModal" class="close-modal">
+              &times;
+            </button>
+          </div>
+          <div class="templates-modal-body">
+            <p class="templates-description">
+              Get started quickly with these pre-configured profile templates:
+            </p>
+            <div id="templatesList" class="templates-list">
+              <!-- Templates will be generated here -->
+            </div>
           </div>
         </div>
       </div>

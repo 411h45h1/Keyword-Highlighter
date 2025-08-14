@@ -72,9 +72,11 @@ class KeywordHighlighter {
         this.profiles?.forEach((profile, index) => {
           console.log(`Profile ${index} URL test:`, {
             name: profile.name || profile.id,
-            urlPatterns: profile.urlPatterns?.map((up) => up.urlPattern) || [
-              profile.urlPattern,
-            ],
+            urlPatterns: profile.urlPatterns
+              ?.map((up) =>
+                Array.isArray(up.urlPattern) ? up.urlPattern : [up.urlPattern]
+              )
+              .flat() || [profile.urlPattern],
             matches: this.testProfileUrlMatch(profile),
           });
         });
@@ -230,9 +232,13 @@ class KeywordHighlighter {
     const currentUrl = window.location.href;
 
     if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
-      return profile.urlPatterns.some((urlPattern) =>
-        this.urlMatches(currentUrl, urlPattern.urlPattern)
-      );
+      return profile.urlPatterns.some((urlPattern) => {
+        const patterns = Array.isArray(urlPattern.urlPattern)
+          ? urlPattern.urlPattern
+          : [urlPattern.urlPattern];
+
+        return patterns.some((pattern) => this.urlMatches(currentUrl, pattern));
+      });
     } else if (profile.urlPattern) {
       return this.urlMatches(currentUrl, profile.urlPattern);
     }
@@ -316,11 +322,17 @@ class KeywordHighlighter {
     for (const profile of this.profiles) {
       if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
         for (const urlPattern of profile.urlPatterns) {
-          if (this.urlMatches(currentUrl, urlPattern.urlPattern)) {
-            return {
-              ...profile,
-              currentUrlPattern: urlPattern,
-            };
+          const patterns = Array.isArray(urlPattern.urlPattern)
+            ? urlPattern.urlPattern
+            : [urlPattern.urlPattern];
+
+          for (const pattern of patterns) {
+            if (this.urlMatches(currentUrl, pattern)) {
+              return {
+                ...profile,
+                currentUrlPattern: urlPattern,
+              };
+            }
           }
         }
       } else if (
@@ -364,24 +376,28 @@ class KeywordHighlighter {
       if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
         let foundMatch = false;
         for (const urlPattern of profile.urlPatterns) {
-          console.log(
-            `Extension: Testing pattern "${urlPattern.urlPattern}" against URL`
-          );
-          if (this.urlMatches(currentUrl, urlPattern.urlPattern)) {
-            console.log(
-              `Extension: ✓ Pattern "${urlPattern.urlPattern}" matches!`
-            );
-            matchingProfiles.push({
-              ...profile,
-              currentUrlPattern: urlPattern,
-              id: `${profile.id}_${urlPattern.urlPattern}`,
-            });
-            foundMatch = true;
-          } else {
-            console.log(
-              `Extension: ✗ Pattern "${urlPattern.urlPattern}" does not match`
-            );
+          const patterns = Array.isArray(urlPattern.urlPattern)
+            ? urlPattern.urlPattern
+            : [urlPattern.urlPattern];
+
+          for (const pattern of patterns) {
+            console.log(`Extension: Testing pattern "${pattern}" against URL`);
+            if (this.urlMatches(currentUrl, pattern)) {
+              console.log(`Extension: ✓ Pattern "${pattern}" matches!`);
+              matchingProfiles.push({
+                ...profile,
+                currentUrlPattern: urlPattern,
+                matchedUrl: pattern,
+                id: `${profile.id}_${pattern}`,
+              });
+              foundMatch = true;
+              break;
+            } else {
+              console.log(`Extension: ✗ Pattern "${pattern}" does not match`);
+            }
           }
+
+          if (foundMatch) break;
         }
         if (foundMatch) {
           console.log(
@@ -496,12 +512,27 @@ class KeywordHighlighter {
     const keywordColorMap = new Map();
     let exactCase = false;
 
+    console.log("=== BUILDING KEYWORD COLOR MAP ===");
+    console.log(
+      `Extension: Processing ${matchingProfiles.length} matching profiles`
+    );
+
     matchingProfiles.forEach((profile, profileIndex) => {
       console.log(
         `Extension: Processing profile ${profileIndex}: "${
           profile.name || profile.id
         }"`
       );
+      console.log(`Extension: Profile data:`, {
+        id: profile.id,
+        name: profile.name,
+        hasKeywordGroups: !!(
+          profile.keywordGroups && profile.keywordGroups.length > 0
+        ),
+        keywordGroupsCount: profile.keywordGroups?.length || 0,
+        hasCurrentUrlPattern: !!profile.currentUrlPattern,
+        matchedUrl: profile.matchedUrl,
+      });
 
       if (profile.exactCase) {
         exactCase = true;
@@ -513,14 +544,30 @@ class KeywordHighlighter {
       }
 
       if (profile.currentUrlPattern) {
+        const urlDisplay =
+          profile.matchedUrl ||
+          (Array.isArray(profile.currentUrlPattern.urlPattern)
+            ? profile.currentUrlPattern.urlPattern[0]
+            : profile.currentUrlPattern.urlPattern);
         console.log(
-          `Extension: Profile has currentUrlPattern: "${profile.currentUrlPattern.urlPattern}" with color overrides:`,
+          `Extension: Profile has currentUrlPattern: "${urlDisplay}" with color overrides:`,
           profile.currentUrlPattern.colorOverrides
         );
       }
 
       if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
+        console.log(
+          `Extension: Profile has ${profile.keywordGroups.length} keyword groups`
+        );
         profile.keywordGroups.forEach((group, groupIndex) => {
+          console.log(`Extension: Processing group ${groupIndex}:`, {
+            groupId: group?.id,
+            groupName: group?.name,
+            hasKeywords: !!(group?.keywords && Array.isArray(group.keywords)),
+            keywordCount: group?.keywords?.length || 0,
+            groupColor: group?.color,
+          });
+
           if (
             group &&
             group.keywords &&
@@ -537,12 +584,22 @@ class KeywordHighlighter {
                 profile.currentUrlPattern.colorOverrides[group.id];
               if (overrideColor) {
                 color = overrideColor;
+                const urlDisplay =
+                  profile.matchedUrl ||
+                  (Array.isArray(profile.currentUrlPattern.urlPattern)
+                    ? profile.currentUrlPattern.urlPattern[0]
+                    : profile.currentUrlPattern.urlPattern);
                 console.log(
-                  `Extension: Using color override for group ${group.id} from pattern "${profile.currentUrlPattern.urlPattern}": ${color}`
+                  `Extension: Using color override for group ${group.id} from pattern "${urlDisplay}": ${color}`
                 );
               } else {
+                const urlDisplay =
+                  profile.matchedUrl ||
+                  (Array.isArray(profile.currentUrlPattern.urlPattern)
+                    ? profile.currentUrlPattern.urlPattern[0]
+                    : profile.currentUrlPattern.urlPattern);
                 console.log(
-                  `Extension: No color override found for group ${group.id} in pattern "${profile.currentUrlPattern.urlPattern}"`
+                  `Extension: No color override found for group ${group.id} in pattern "${urlDisplay}"`
                 );
               }
             } else {
@@ -570,6 +627,10 @@ class KeywordHighlighter {
                 }
               }
             });
+          } else {
+            console.log(
+              `Extension: Skipping empty or invalid group ${groupIndex}`
+            );
           }
         });
       } else if (
@@ -598,13 +659,23 @@ class KeywordHighlighter {
             }
           }
         });
+      } else {
+        console.log(
+          `Extension: Profile has no keyword groups or invalid keyword groups array`
+        );
       }
     });
 
     console.log(
-      `Extension: Final keyword color map has ${keywordColorMap.size} unique keywords (always case-insensitive)`
+      `Extension: Final keyword color map has ${keywordColorMap.size} unique keywords`
     );
-    return { keywordColorMap, exactCase: false };
+    console.log(`Extension: Exact case mode enabled: ${exactCase}`);
+    console.log(
+      "Extension: Final keyword list:",
+      Array.from(keywordColorMap.keys())
+    );
+    console.log("=== KEYWORD COLOR MAP COMPLETE ===");
+    return { keywordColorMap, exactCase };
   }
 
   urlMatches(url, pattern) {
@@ -730,7 +801,14 @@ class KeywordHighlighter {
 
     const { keywordColorMap, exactCase } =
       this.buildKeywordColorMap(matchingProfiles);
-    console.log("Extension: Keyword color map:", keywordColorMap);
+    console.log(
+      "Extension: Final keyword color map size:",
+      keywordColorMap.size
+    );
+    console.log(
+      "Extension: Keyword color map entries:",
+      Array.from(keywordColorMap.entries())
+    );
     console.log("Extension: Exact case matching:", exactCase);
 
     try {
