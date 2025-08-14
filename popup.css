@@ -402,6 +402,66 @@ input:checked + .slider:before {
     gap: 8px;
 }
 
+.color-override.text-color-override {
+    background-color: #f8f9ff;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #e3e6ff;
+    margin-bottom: 8px;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.color-override.text-color-override label {
+    color: #4c63d2;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.color-override.text-color-override .color-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.color-override.text-color-override .text-color-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.color-override.text-color-override .text-color-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.color-override.text-color-override .text-color-toggle input[type="checkbox"] {
+    margin: 0;
+}
+
+.color-override.text-color-override .text-color-toggle label {
+    margin: 0;
+    font-size: 12px;
+    color: #666;
+    cursor: pointer;
+}
+
+.color-override.text-color-override .reset-text-color {
+    flex-shrink: 0;
+}
+
+.color-override.text-color-override input[type="color"][data-empty="true"] {
+    opacity: 0.3;
+    cursor: not-allowed;
+    filter: grayscale(100%);
+}
+
+.color-override.text-color-override input[type="color"][data-empty="true"]:hover {
+    opacity: 0.5;
+}
+
 .color-override label {
     font-size: 11px;
     color: #495057;

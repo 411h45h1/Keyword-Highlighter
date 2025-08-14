@@ -9,7 +9,7 @@ class KeywordHighlighterPopup {
     this.cachedProfiles = [];
     this.keywordBank = [];
     this.templates = this.getTemplates();
-    this.keywordBankInputTimeout = null; // For debouncing input
+    this.keywordBankInputTimeout = null;
     this.init();
   }
 
@@ -137,6 +137,9 @@ class KeywordHighlighterPopup {
       if (processed.has(index)) return;
 
       const currentOverrides = JSON.stringify(pattern.colorOverrides || {});
+      const currentTextOverrides = JSON.stringify(
+        pattern.textColorOverrides || {}
+      );
 
       // Handle both single URL strings and arrays of URLs
       let urls;
@@ -149,6 +152,7 @@ class KeywordHighlighterPopup {
       const group = {
         urls: urls,
         colorOverrides: pattern.colorOverrides || {},
+        textColorOverrides: pattern.textColorOverrides || {},
       };
 
       // Find other patterns with the same color overrides
@@ -158,7 +162,13 @@ class KeywordHighlighterPopup {
         const otherOverrides = JSON.stringify(
           urlPatterns[i].colorOverrides || {}
         );
-        if (currentOverrides === otherOverrides) {
+        const otherTextOverrides = JSON.stringify(
+          urlPatterns[i].textColorOverrides || {}
+        );
+        if (
+          currentOverrides === otherOverrides &&
+          currentTextOverrides === otherTextOverrides
+        ) {
           // Handle both single URL strings and arrays of URLs
           if (Array.isArray(urlPatterns[i].urlPattern)) {
             group.urls.push(...urlPatterns[i].urlPattern);
@@ -600,14 +610,16 @@ class KeywordHighlighterPopup {
     patternsContainer.innerHTML = "";
     this.urlPatternCounter = 0;
 
-    this.addUrlPattern();
-
+    // Create the add button first
     const addPatternButton = document.createElement("button");
     addPatternButton.type = "button";
-    addPatternButton.className = "btn-secondary btn-small";
+    addPatternButton.className = "btn-secondary btn-small add-url-pattern-btn";
     addPatternButton.textContent = "+ Add URL Pattern";
     addPatternButton.addEventListener("click", () => this.addUrlPattern());
     patternsContainer.appendChild(addPatternButton);
+
+    // Then add the initial pattern
+    this.addUrlPattern();
 
     document.querySelectorAll(".keyword-group").forEach((group) => {
       const colorInputGroup = group.querySelector(".color-input-group");
@@ -811,7 +823,7 @@ class KeywordHighlighterPopup {
       }
     `;
 
-    const addButton = patternsContainer.querySelector(".btn-secondary");
+    const addButton = patternsContainer.querySelector(".add-url-pattern-btn");
     if (addButton) {
       patternsContainer.insertBefore(patternDiv, addButton);
     } else {
@@ -883,17 +895,117 @@ class KeywordHighlighterPopup {
       if (!colorsContainer) return;
 
       const existingColors = {};
+      const existingTextColor = {};
       const existingColorInputs = colorsContainer.querySelectorAll(
         'input[type="color"]'
       );
       existingColorInputs.forEach((input) => {
         const groupId = input.dataset.group;
+        const isTextColor = input.dataset.textColor === "true";
         if (groupId) {
-          existingColors[groupId] = input.value;
+          if (isTextColor) {
+            existingTextColor[groupId] = input.value;
+          } else {
+            existingColors[groupId] = input.value;
+          }
         }
       });
 
       colorsContainer.innerHTML = "";
+
+      // Add Highlighted Text Color option at the top
+      const textColorOverrideDiv = document.createElement("div");
+      textColorOverrideDiv.className = "color-override text-color-override";
+
+      const hasExistingTextColor =
+        existingTextColor["global"] &&
+        existingTextColor["global"].trim() !== "";
+
+      textColorOverrideDiv.innerHTML = `
+        <label><strong>Highlighted Text Color</strong> (applies to all keywords):</label>
+        <div class="text-color-controls">
+          <div class="text-color-toggle">
+            <input type="checkbox" id="enableTextColor-${
+              colorsContainer.dataset.pattern
+            }" 
+                   ${hasExistingTextColor ? "checked" : ""}>
+            <label for="enableTextColor-${
+              colorsContainer.dataset.pattern
+            }">Customize text color</label>
+          </div>
+          <div class="color-input-group" style="display: ${
+            hasExistingTextColor ? "flex" : "none"
+          };">
+            <input type="color" value="${
+              hasExistingTextColor ? existingTextColor["global"] : "#000000"
+            }" 
+                   data-pattern="${colorsContainer.dataset.pattern}" 
+                   data-group="global" 
+                   data-text-color="true">
+            <input type="text" value="${
+              hasExistingTextColor ? existingTextColor["global"] : ""
+            }" 
+                   maxlength="7" 
+                   placeholder="e.g. #ffffff" 
+                   data-pattern="${colorsContainer.dataset.pattern}" 
+                   data-group="global" 
+                   data-text-color="true">
+          </div>
+        </div>
+        <small style="color: #666; font-size: 11px; margin-top: 4px; display: block;">Leave unchecked to use default text color</small>
+      `;
+
+      colorsContainer.appendChild(textColorOverrideDiv);
+
+      const textColorCheckbox = textColorOverrideDiv.querySelector(
+        'input[type="checkbox"]'
+      );
+      const colorInputGroup =
+        textColorOverrideDiv.querySelector(".color-input-group");
+      const textColorPicker = textColorOverrideDiv.querySelector(
+        'input[type="color"]'
+      );
+      const textHexInput =
+        textColorOverrideDiv.querySelector('input[type="text"]');
+
+      // Handle checkbox toggle
+      textColorCheckbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          colorInputGroup.style.display = "flex";
+          // Set a reasonable default color if none exists
+          if (!textHexInput.value) {
+            textColorPicker.value = "#000000";
+            textHexInput.value = "#000000";
+          }
+        } else {
+          colorInputGroup.style.display = "none";
+          textHexInput.value = "";
+          textColorPicker.value = "#000000";
+        }
+      });
+
+      // Handle text color input changes
+      textColorPicker.addEventListener("input", (e) => {
+        textHexInput.value = e.target.value;
+      });
+
+      textHexInput.addEventListener("input", (e) => {
+        const hex = e.target.value.trim();
+        if (hex === "") {
+          textColorCheckbox.checked = false;
+          colorInputGroup.style.display = "none";
+        } else if (/^#[0-9A-F]{6}$/i.test(hex)) {
+          textColorPicker.value = hex;
+          textColorCheckbox.checked = true;
+          colorInputGroup.style.display = "flex";
+        }
+      });
+
+      // Add a separator
+      const separatorDiv = document.createElement("div");
+      separatorDiv.style.borderTop = "1px solid #e0e0e0";
+      separatorDiv.style.margin = "12px 0 8px 0";
+      colorsContainer.appendChild(separatorDiv);
 
       keywordGroups.forEach((groupDiv) => {
         const groupId = groupDiv.dataset.groupId;
@@ -1099,6 +1211,7 @@ class KeywordHighlighterPopup {
       hasValidPatterns = true;
 
       const colorOverrides = {};
+      const textColorOverrides = {};
       if (this.profileMode === "multi") {
         const patternColors = patternDiv.querySelector(".pattern-colors");
         if (patternColors) {
@@ -1107,21 +1220,62 @@ class KeywordHighlighterPopup {
           );
           overrideInputs.forEach((input) => {
             const groupId = input.dataset.group;
+            const isTextColor = input.dataset.textColor === "true";
+            const isEmpty = input.hasAttribute("data-empty");
+
             if (groupId) {
-              colorOverrides[groupId] = input.value;
-              console.log(
-                `Saving color override for pattern ${patternIndex}, group ${groupId}: ${input.value}`
-              );
+              if (isTextColor) {
+                // Check if text color customization is enabled via checkbox
+                const textColorCheckbox = patternColors.querySelector(
+                  `input[type="checkbox"][id*="enableTextColor"]`
+                );
+                const isTextColorEnabled =
+                  textColorCheckbox && textColorCheckbox.checked;
+
+                if (isTextColorEnabled) {
+                  // For text color, also check the corresponding text input
+                  const textInput = patternColors.querySelector(
+                    `input[type="text"][data-group="${groupId}"][data-text-color="true"]`
+                  );
+                  const textValue = textInput ? textInput.value.trim() : "";
+
+                  // Only save text color if checkbox is checked and valid hex
+                  if (textValue && /^#[0-9A-F]{6}$/i.test(textValue)) {
+                    textColorOverrides[groupId] = textValue;
+                    console.log(
+                      `Saving text color override for pattern ${patternIndex}, group ${groupId}: ${textValue}`
+                    );
+                  }
+                } else {
+                  console.log(
+                    `Text color disabled for pattern ${patternIndex}, group ${groupId} - not saving any text color data`
+                  );
+                  // Explicitly ensure no text color is saved when disabled
+                  // textColorOverrides[groupId] will remain undefined
+                }
+              } else {
+                colorOverrides[groupId] = input.value;
+                console.log(
+                  `Saving color override for pattern ${patternIndex}, group ${groupId}: ${input.value}`
+                );
+              }
             }
           });
         }
       }
 
       // Create a single pattern entry for all URLs from this textarea with the same color overrides
-      patterns.push({
+      const patternData = {
         urlPattern: urlList, // Store as array for multiple URLs
         colorOverrides: colorOverrides,
-      });
+      };
+
+      // Only include textColorOverrides if there are actually any text colors to save
+      if (Object.keys(textColorOverrides).length > 0) {
+        patternData.textColorOverrides = textColorOverrides;
+      }
+
+      patterns.push(patternData);
     });
 
     if (!hasValidPatterns) {
@@ -3042,21 +3196,80 @@ class KeywordHighlighterPopup {
         // Apply color overrides if in multi-URL mode
         if (
           this.profileMode === "multi" &&
-          Object.keys(group.colorOverrides).length > 0
+          (Object.keys(group.colorOverrides).length > 0 ||
+            Object.keys(group.textColorOverrides || {}).length > 0)
         ) {
           setTimeout(() => {
             const patternColors = patternDiv.querySelector(".pattern-colors");
             if (patternColors) {
+              // Apply background color overrides
               Object.entries(group.colorOverrides).forEach(
                 ([groupId, color]) => {
                   const colorInput = patternColors.querySelector(
-                    `input[data-group="${groupId}"]`
+                    `input[data-group="${groupId}"]:not([data-text-color])`
                   );
                   if (colorInput) {
                     colorInput.value = color;
+                    const textInput = patternColors.querySelector(
+                      `input[type="text"][data-group="${groupId}"]:not([data-text-color])`
+                    );
+                    if (textInput) {
+                      textInput.value = color;
+                    }
                   }
                 }
               );
+
+              // Apply text color overrides - only if there are actual text color values
+              const textColorEntries = Object.entries(
+                group.textColorOverrides || {}
+              );
+              if (textColorEntries.length > 0) {
+                textColorEntries.forEach(([groupId, color]) => {
+                  if (color && color.trim() && color !== "#000000") {
+                    const textColorCheckbox = patternColors.querySelector(
+                      `input[type="checkbox"][id*="enableTextColor"]`
+                    );
+                    const textColorInput = patternColors.querySelector(
+                      `input[data-group="${groupId}"][data-text-color="true"]`
+                    );
+                    const colorInputGroup =
+                      patternColors.querySelector(".color-input-group");
+
+                    if (
+                      textColorCheckbox &&
+                      textColorInput &&
+                      colorInputGroup
+                    ) {
+                      // Enable the checkbox and show the controls
+                      textColorCheckbox.checked = true;
+                      colorInputGroup.style.display = "flex";
+
+                      textColorInput.value = color;
+                      const textInput = patternColors.querySelector(
+                        `input[type="text"][data-group="${groupId}"][data-text-color="true"]`
+                      );
+                      if (textInput) {
+                        textInput.value = color;
+                      }
+                    }
+                  }
+                });
+              } else {
+                // Ensure checkbox is unchecked when no text color overrides exist
+                const textColorCheckbox = patternColors.querySelector(
+                  `input[type="checkbox"][id*="enableTextColor"]`
+                );
+                const colorInputGroup =
+                  patternColors.querySelector(".color-input-group");
+
+                if (textColorCheckbox) {
+                  textColorCheckbox.checked = false;
+                }
+                if (colorInputGroup) {
+                  colorInputGroup.style.display = "none";
+                }
+              }
             }
           }, 50); // Small delay to ensure color override inputs are created
         }
@@ -3229,7 +3442,6 @@ class KeywordHighlighterPopup {
     this.notifyContentScripts();
   }
 
-  // Template Methods
   getTemplates() {
     return [
       {

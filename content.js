@@ -587,6 +587,7 @@ class KeywordHighlighter {
             group.keywords.length > 0
           ) {
             let color = group.color || "#ffff00";
+            let textColor = null;
             if (
               profile.currentUrlPattern &&
               profile.currentUrlPattern.colorOverrides &&
@@ -620,21 +621,38 @@ class KeywordHighlighter {
               );
             }
 
+            if (
+              profile.currentUrlPattern &&
+              profile.currentUrlPattern.textColorOverrides &&
+              profile.currentUrlPattern.textColorOverrides["global"]
+            ) {
+              textColor =
+                profile.currentUrlPattern.textColorOverrides["global"];
+              console.log(
+                `Extension: Using global text color override: ${textColor}`
+              );
+            }
+
             group.keywords.forEach((keyword) => {
               const keywordKey = keyword.toLowerCase().trim();
 
               if (keywordKey) {
+                const colorInfo = {
+                  backgroundColor: color,
+                  textColor: textColor,
+                };
+
                 if (keywordColorMap.has(keywordKey)) {
-                  keywordColorMap.get(keywordKey).push(color);
+                  keywordColorMap.get(keywordKey).push(colorInfo);
                   console.log(
-                    `Extension: Keyword "${keywordKey}" now has multiple colors:`,
+                    `Extension: Keyword "${keywordKey}" now has multiple color sets:`,
                     keywordColorMap.get(keywordKey)
                   );
                 } else {
-                  keywordColorMap.set(keywordKey, [color]);
+                  keywordColorMap.set(keywordKey, [colorInfo]);
                   console.log(
-                    `Extension: Added keyword "${keywordKey}" (original: "${keyword}") with color:`,
-                    color
+                    `Extension: Added keyword "${keywordKey}" (original: "${keyword}") with colors:`,
+                    colorInfo
                   );
                 }
               }
@@ -656,17 +674,19 @@ class KeywordHighlighter {
         profile.keywords.forEach((keyword) => {
           const normalizedKeyword = keyword.toLowerCase().trim();
           if (normalizedKeyword) {
+            const colorInfo = { backgroundColor: color, textColor: null };
+
             if (keywordColorMap.has(normalizedKeyword)) {
-              keywordColorMap.get(normalizedKeyword).push(color);
+              keywordColorMap.get(normalizedKeyword).push(colorInfo);
               console.log(
                 `Extension: Legacy keyword "${normalizedKeyword}" now has multiple colors:`,
                 keywordColorMap.get(normalizedKeyword)
               );
             } else {
-              keywordColorMap.set(normalizedKeyword, [color]);
+              keywordColorMap.set(normalizedKeyword, [colorInfo]);
               console.log(
                 `Extension: Added legacy keyword "${normalizedKeyword}" with color:`,
-                color
+                colorInfo
               );
             }
           }
@@ -1027,19 +1047,50 @@ class KeywordHighlighter {
 
             if (colors && colors.length > 0) {
               if (colors.length === 1) {
-                return `<span class="keyword-highlight" style="background-color: ${colors[0]}; padding: 1px 2px;">${match}</span>`;
+                const colorInfo = colors[0];
+                const backgroundColor = colorInfo.backgroundColor || colorInfo;
+                const textColor = colorInfo.textColor;
+                const textColorStyle = textColor ? `color: ${textColor}; ` : "";
+                return `<span class="keyword-highlight" style="background-color: ${backgroundColor}; ${textColorStyle}padding: 1px 2px;">${match}</span>`;
               } else {
-                const uniqueColors = [...new Set(colors)];
+                const uniqueColorInfos = colors.filter((color, index, self) => {
+                  const colorKey =
+                    typeof color === "object"
+                      ? `${color.backgroundColor}-${color.textColor || ""}`
+                      : color;
+                  return (
+                    index ===
+                    self.findIndex((c) => {
+                      const cKey =
+                        typeof c === "object"
+                          ? `${c.backgroundColor}-${c.textColor || ""}`
+                          : c;
+                      return cKey === colorKey;
+                    })
+                  );
+                });
                 console.log(
                   `Extension: Creating blinking highlight for single letter "${match}" with unique colors:`,
-                  uniqueColors
+                  uniqueColorInfos
                 );
 
-                const colorList = uniqueColors.join(",");
-                return `<span class="keyword-highlight keyword-highlight-blink" data-colors="${colorList}" style="background-color: ${
-                  uniqueColors[0]
-                }; padding: 1px 2px; animation: keyword-blink-${this.getColorHash(
-                  uniqueColors
+                const uniqueBackgroundColors = uniqueColorInfos.map((info) =>
+                  typeof info === "object" ? info.backgroundColor : info
+                );
+                const colorList = uniqueBackgroundColors.join(",");
+                const firstColorInfo = uniqueColorInfos[0];
+                const backgroundColor =
+                  typeof firstColorInfo === "object"
+                    ? firstColorInfo.backgroundColor
+                    : firstColorInfo;
+                const textColor =
+                  typeof firstColorInfo === "object"
+                    ? firstColorInfo.textColor
+                    : null;
+                const textColorStyle = textColor ? `color: ${textColor}; ` : "";
+
+                return `<span class="keyword-highlight keyword-highlight-blink" data-colors="${colorList}" style="background-color: ${backgroundColor}; ${textColorStyle}padding: 1px 2px; animation: keyword-blink-${this.getColorHash(
+                  uniqueBackgroundColors
                 )} 2s infinite;">${match}</span>`;
               }
             }
@@ -1073,19 +1124,50 @@ class KeywordHighlighter {
 
           if (colors && colors.length > 0) {
             if (colors.length === 1) {
-              return `<span class="keyword-highlight" style="background-color: ${colors[0]}; padding: 1px 2px;">${match}</span>`;
+              const colorInfo = colors[0];
+              const backgroundColor = colorInfo.backgroundColor || colorInfo;
+              const textColor = colorInfo.textColor;
+              const textColorStyle = textColor ? `color: ${textColor}; ` : "";
+              return `<span class="keyword-highlight" style="background-color: ${backgroundColor}; ${textColorStyle}padding: 1px 2px;">${match}</span>`;
             } else {
-              const uniqueColors = [...new Set(colors)];
+              const uniqueColorInfos = colors.filter((color, index, self) => {
+                const colorKey =
+                  typeof color === "object"
+                    ? `${color.backgroundColor}-${color.textColor || ""}`
+                    : color;
+                return (
+                  index ===
+                  self.findIndex((c) => {
+                    const cKey =
+                      typeof c === "object"
+                        ? `${c.backgroundColor}-${c.textColor || ""}`
+                        : c;
+                    return cKey === colorKey;
+                  })
+                );
+              });
               console.log(
                 `Extension: Creating blinking highlight for "${match}" with unique colors:`,
-                uniqueColors
+                uniqueColorInfos
               );
 
-              const colorList = uniqueColors.join(",");
-              return `<span class="keyword-highlight keyword-highlight-blink" data-colors="${colorList}" style="background-color: ${
-                uniqueColors[0]
-              }; padding: 1px 2px; animation: keyword-blink-${this.getColorHash(
-                uniqueColors
+              const uniqueBackgroundColors = uniqueColorInfos.map((info) =>
+                typeof info === "object" ? info.backgroundColor : info
+              );
+              const colorList = uniqueBackgroundColors.join(",");
+              const firstColorInfo = uniqueColorInfos[0];
+              const backgroundColor =
+                typeof firstColorInfo === "object"
+                  ? firstColorInfo.backgroundColor
+                  : firstColorInfo;
+              const textColor =
+                typeof firstColorInfo === "object"
+                  ? firstColorInfo.textColor
+                  : null;
+              const textColorStyle = textColor ? `color: ${textColor}; ` : "";
+
+              return `<span class="keyword-highlight keyword-highlight-blink" data-colors="${colorList}" style="background-color: ${backgroundColor}; ${textColorStyle}padding: 1px 2px; animation: keyword-blink-${this.getColorHash(
+                uniqueBackgroundColors
               )} 2s infinite;">${match}</span>`;
             }
           }
