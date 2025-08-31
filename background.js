@@ -8,7 +8,6 @@ class BackgroundService {
 
   log(...args) {
     if (this.debugMode) {
-      console.log(...args);
     }
   }
 
@@ -103,16 +102,13 @@ class BackgroundService {
   }
 
   handleInstalled(details) {
-    console.log("Extension: Installation event:", details.reason);
     if (details.reason === "install") {
-      console.log("Extension: First install, setting default settings");
       chrome.storage.sync.set({
         extensionEnabled: true,
         profiles: [],
         keywordBank: [],
       });
     } else if (details.reason === "update") {
-      console.log("Extension: Updated, ensuring keywordBank exists");
       chrome.storage.sync.get(["keywordBank"], (result) => {
         if (!result.keywordBank) {
           chrome.storage.sync.set({ keywordBank: [] });
@@ -153,7 +149,6 @@ class BackgroundService {
               chrome.runtime.lastError.message
             );
           } else {
-            console.log("Context menus created successfully");
           }
         }
       );
@@ -163,8 +158,6 @@ class BackgroundService {
   }
 
   async updateContextMenus(currentUrl) {
-    console.log("Extension: Updating context menus for URL:", currentUrl);
-
     if (this.isUpdatingContextMenus) {
       console.log(
         "Extension: Context menu update already in progress, skipping"
@@ -196,11 +189,7 @@ class BackgroundService {
       const profiles = result.profiles || [];
       const isEnabled = result.extensionEnabled !== false;
 
-      console.log("Extension: Extension enabled:", isEnabled);
-      console.log("Extension: Total profiles:", profiles.length);
-
       if (!isEnabled) {
-        console.log("Extension: Extension disabled, hiding context menus");
         await this.hideContextMenus();
         return;
       }
@@ -208,10 +197,8 @@ class BackgroundService {
       const matchingProfiles = this.findMatchingProfiles(profiles, currentUrl);
 
       if (matchingProfiles.length > 0) {
-        console.log("Extension: Showing context menus for matching profiles");
         await this.showContextMenusForProfiles(matchingProfiles);
       } else {
-        console.log("Extension: No matching profiles, hiding context menus");
         await this.hideContextMenus();
       }
     } catch (error) {
@@ -222,7 +209,6 @@ class BackgroundService {
   }
 
   findMatchingProfiles(profiles, currentUrl) {
-    console.log("Extension: Finding matching profiles for URL:", currentUrl);
     const matchingProfiles = [];
 
     for (const profile of profiles) {
@@ -235,9 +221,7 @@ class BackgroundService {
             : [urlPattern.urlPattern || urlPattern];
 
           for (const pattern of patterns) {
-            console.log(`Extension: Testing pattern "${pattern}" against URL`);
             if (this.urlMatches(currentUrl, pattern)) {
-              console.log(`Extension: ✓ Pattern "${pattern}" matches!`);
               matches = true;
               break;
             }
@@ -279,7 +263,6 @@ class BackgroundService {
     );
 
     if (!pattern || !url) {
-      console.log("Extension: URL or pattern is empty");
       return false;
     }
 
@@ -311,7 +294,7 @@ class BackgroundService {
     }
 
     const matches = url === pattern;
-    console.log(`Extension: Exact match: ${matches}`);
+
     return matches;
   }
 
@@ -414,25 +397,20 @@ class BackgroundService {
   async hideContextMenus() {
     try {
       await chrome.contextMenus.removeAll();
-      console.log("Extension: Context menus hidden successfully");
     } catch (error) {
       console.error("Error hiding context menus:", error);
     }
   }
 
   async handleContextMenuClick(info, tab) {
-    console.log("Extension: Context menu clicked!", { info, tab: tab.url });
     try {
       const selectedText = info.selectionText?.trim();
-      console.log("Extension: Selected text:", selectedText);
 
       if (!selectedText) {
-        console.log("Extension: No text selected, ignoring click");
         return;
       }
 
       const menuId = info.menuItemId;
-      console.log("Extension: Menu ID clicked:", menuId);
 
       if (typeof menuId === "string" && menuId.includes("-group-")) {
         const parts = menuId.split("-");
@@ -450,18 +428,13 @@ class BackgroundService {
           groupIndex,
           selectedText
         );
-        console.log("Extension: Add keyword result:", result);
 
         chrome.tabs
           .sendMessage(tab.id, {
             action: "updateProfiles",
           })
-          .then(() => {
-            console.log("Extension: Successfully sent updateProfiles message");
-          })
-          .catch(() => {
-            console.log("Extension: Failed to send updateProfiles message");
-          });
+          .then(() => {})
+          .catch(() => {});
 
         chrome.tabs
           .sendMessage(tab.id, {
@@ -470,9 +443,7 @@ class BackgroundService {
             type: "success",
             details: "Highlights will appear automatically.",
           })
-          .catch(() => {
-            console.log("Extension: Failed to send showNotification message");
-          });
+          .catch(() => {});
       } else {
         console.log(
           "Extension: Menu ID doesn't match expected pattern:",
@@ -489,9 +460,7 @@ class BackgroundService {
           type: "error",
           details: error.message,
         })
-        .catch(() => {
-          console.log("Extension: Failed to send error notification");
-        });
+        .catch(() => {});
     }
   }
 
@@ -641,6 +610,4 @@ class BackgroundService {
   }
 }
 
-console.log("Extension: Background script loading...");
 const backgroundService = new BackgroundService();
-console.log("Extension: Background service initialized");

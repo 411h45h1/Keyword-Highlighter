@@ -64,7 +64,6 @@ class KeywordHighlighterPopup {
 
     if (cleanupCount > 0) {
       await chrome.storage.sync.set({ profiles: cleanedProfiles });
-      console.log(`Cleaned up ${cleanupCount} invalid color values`);
     }
 
     return cleanupCount;
@@ -1108,16 +1107,13 @@ class KeywordHighlighterPopup {
     let hasValidPatterns = false;
     let hasValidGroups = false;
 
-    console.log("=== URL VALIDATION DEBUG ===");
     urlPatterns.forEach((pattern, index) => {
       const urlInput = pattern.querySelector(".pattern-url-input");
       if (urlInput && urlInput.value.trim()) {
         const rawValue = urlInput.value.trim();
-        console.log(`Pattern ${index}: Raw value: "${rawValue}"`);
 
         // Parse multiple URLs from the textarea using URL-specific parsing
         const urlList = this.parseUrls(rawValue);
-        console.log(`Pattern ${index}: Parsed URLs:`, urlList);
 
         // Check if at least one URL is valid
         const validUrls = [];
@@ -1125,7 +1121,7 @@ class KeywordHighlighterPopup {
 
         urlList.forEach((url) => {
           const isValid = this.isValidUrlPattern(url);
-          console.log(`  URL "${url}" -> Valid: ${isValid}`);
+
           if (isValid) {
             validUrls.push(url);
           } else {
@@ -1141,7 +1137,6 @@ class KeywordHighlighterPopup {
           hasValidPatterns = true;
         }
       } else {
-        console.log(`Pattern ${index}: No URL input or empty value`);
       }
     });
 
@@ -1162,15 +1157,11 @@ class KeywordHighlighterPopup {
       isValid,
       saveButtonDisabled: saveButton.disabled,
     });
-    console.log("=== END URL VALIDATION DEBUG ===");
   }
 
   async handleSaveProfile() {
-    console.log("=== HANDLE SAVE PROFILE CALLED ===");
-
     const saveButton = document.getElementById("saveProfile");
     if (saveButton.disabled) {
-      console.log("Save button is disabled, cannot save profile");
       return;
     }
 
@@ -1326,14 +1317,11 @@ class KeywordHighlighterPopup {
       profile.name = profileName;
     }
 
-    console.log("Final profile object to save:", profile);
-
     try {
       await this.saveProfile(profile);
-      console.log("Profile saved successfully");
+
       this.resetForm();
       await this.loadProfiles();
-      console.log("=== SAVE PROFILE COMPLETED ===");
     } catch (error) {
       console.error("Error saving profile:", error);
       alert("Error saving profile: " + error.message);
@@ -1341,10 +1329,8 @@ class KeywordHighlighterPopup {
   }
 
   isValidUrlPattern(pattern) {
-    console.log(`    Validating URL pattern: "${pattern}"`);
     try {
       const urlToTest = pattern.replace(/\*$/, "");
-      console.log(`    URL after removing trailing *: "${urlToTest}"`);
 
       const url = new URL(urlToTest);
       console.log(
@@ -1352,24 +1338,19 @@ class KeywordHighlighterPopup {
       );
 
       if (!["http:", "https:", "file:"].includes(url.protocol)) {
-        console.log(`    INVALID: Protocol "${url.protocol}" not allowed`);
         return false;
       }
 
       if (url.protocol === "file:") {
-        console.log(`    VALID: File protocol accepted`);
         return true;
       }
 
       if (!url.hostname || url.hostname.length === 0) {
-        console.log(`    INVALID: No hostname or empty hostname`);
         return false;
       }
 
-      console.log(`    VALID: URL pattern accepted`);
       return true;
     } catch (error) {
-      console.log(`    INVALID: URL parsing failed - ${error.message}`);
       return false;
     }
   }
@@ -1379,21 +1360,15 @@ class KeywordHighlighterPopup {
   }
 
   async saveProfile(profile) {
-    console.log("=== SAVING PROFILE ===");
-    console.log("Profile being saved:", profile);
-
     const result = await chrome.storage.sync.get(["profiles"]);
     let profiles = result.profiles || [];
 
     if (this.currentEditingId) {
-      console.log("Updating existing profile with ID:", this.currentEditingId);
       const index = profiles.findIndex((p) => p.id === this.currentEditingId);
       if (index !== -1) {
         profiles[index] = profile;
-        console.log("Profile updated at index:", index);
       }
     } else {
-      console.log("Adding new profile");
       profiles.push(profile);
     }
 
@@ -1424,12 +1399,9 @@ class KeywordHighlighterPopup {
     });
 
     await chrome.storage.sync.set({ profiles });
-    console.log(`Total profiles saved: ${profiles.length}`);
-    console.log("All profiles in storage:", profiles);
 
     this.cachedProfiles = profiles;
 
-    console.log("Notifying content scripts...");
     this.notifyContentScripts();
   }
 
@@ -1441,9 +1413,7 @@ class KeywordHighlighterPopup {
         .sendMessage(tab.id, {
           action: "updateProfiles",
         })
-        .catch((error) => {
-          console.log(`Failed to notify tab:`, error);
-        });
+        .catch((error) => {});
     });
   }
 
@@ -3980,14 +3950,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const popup = new KeywordHighlighterPopup();
 
   window.debugExtension = async function () {
-    console.log("=== EXTENSION DEBUG INFO ===");
-
     const storage = await chrome.storage.sync.get([
       "profiles",
       "extensionEnabled",
       "keywordBank",
     ]);
-    console.log("Storage contents:", storage);
 
     console.log("Popup state:", {
       profileMode: popup.profileMode,
@@ -3998,13 +3965,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]) {
-      console.log("Current tab:", tabs[0].url);
-
       try {
         await chrome.tabs.sendMessage(tabs[0].id, { action: "debugInfo" });
-      } catch (error) {
-        console.log("Content script not available or error:", error);
-      }
+      } catch (error) {}
     }
 
     return storage;
