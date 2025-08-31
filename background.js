@@ -2,17 +2,7 @@ class BackgroundService {
   constructor() {
     this.updateContextMenusTimeout = null;
     this.isUpdatingContextMenus = false;
-    this.debugMode = true;
     this.init();
-  }
-
-  log(...args) {
-    if (this.debugMode) {
-    }
-  }
-
-  logError(...args) {
-    console.error(...args);
   }
 
   init() {
@@ -26,28 +16,13 @@ class BackgroundService {
   }
 
   handleTabUpdate(tabId, changeInfo, tab) {
-    this.log("Extension: Tab updated:", {
-      tabId,
-      status: changeInfo.status,
-      url: tab.url,
-    });
     if (changeInfo.status === "complete" && tab.url) {
       this.processTab(tabId, tab.url);
     }
   }
 
   handleTabActivated(activeInfo) {
-    this.log("Extension: Tab activated:", activeInfo.tabId);
     chrome.tabs.get(activeInfo.tabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        this.log(
-          "Extension: Error getting tab info:",
-          chrome.runtime.lastError.message
-        );
-        return;
-      }
-
-      this.log("Extension: Tab info:", { url: tab.url, status: tab.status });
       if (tab.url && tab.status === "complete") {
         this.processTab(tab.id, tab.url);
         this.updateContextMenus(tab.url);
@@ -56,37 +31,26 @@ class BackgroundService {
   }
 
   async processTab(tabId, url) {
-    this.log("Extension: Processing tab:", { tabId, url });
     try {
       const result = await chrome.storage.sync.get(["extensionEnabled"]);
       const isEnabled = result.extensionEnabled !== false;
 
-      this.log("Extension: Enabled status:", isEnabled);
-
       if (!isEnabled) {
-        this.log("Extension: Extension disabled, skipping tab processing");
         await this.hideContextMenus();
         return;
       }
 
       if (!this.shouldProcessUrl(url)) {
-        this.log("Extension: URL should not be processed:", url);
         await this.hideContextMenus();
         return;
       }
 
       this.updateContextMenus(url);
 
-      chrome.tabs
-        .sendMessage(tabId, {
-          action: "updateProfiles",
-        })
-        .catch(() => {
-          this.log("Extension: Content script not ready for tab:", tabId);
-        });
-    } catch (error) {
-      this.logError("Error processing tab:", error);
-    }
+      chrome.tabs.sendMessage(tabId, {
+        action: "updateProfiles",
+      });
+    } catch (error) {}
   }
 
   shouldProcessUrl(url) {
@@ -120,10 +84,6 @@ class BackgroundService {
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs.length > 0 && tabs[0].url) {
-        console.log(
-          "Extension: Updating context menus for current tab:",
-          tabs[0].url
-        );
         this.updateContextMenus(tabs[0].url);
       }
     });
@@ -144,24 +104,15 @@ class BackgroundService {
         },
         () => {
           if (chrome.runtime.lastError) {
-            console.log(
-              "Context menu creation error (expected on duplicate):",
-              chrome.runtime.lastError.message
-            );
           } else {
           }
         }
       );
-    } catch (error) {
-      console.error("Error creating context menus:", error);
-    }
+    } catch (error) {}
   }
 
   async updateContextMenus(currentUrl) {
     if (this.isUpdatingContextMenus) {
-      console.log(
-        "Extension: Context menu update already in progress, skipping"
-      );
       return;
     }
 
@@ -202,7 +153,6 @@ class BackgroundService {
         await this.hideContextMenus();
       }
     } catch (error) {
-      console.error("Error updating context menus:", error);
     } finally {
       this.isUpdatingContextMenus = false;
     }
@@ -230,38 +180,19 @@ class BackgroundService {
           if (matches) break;
         }
       } else if (profile.urlPattern) {
-        console.log(
-          `Extension: Testing legacy pattern "${profile.urlPattern}" against URL`
-        );
         matches = this.urlMatches(currentUrl, profile.urlPattern);
         if (matches) {
-          console.log(
-            `Extension: ✓ Legacy pattern "${profile.urlPattern}" matches!`
-          );
         }
       }
 
       if (matches) {
         matchingProfiles.push(profile);
-        console.log(
-          `Extension: Profile "${
-            profile.name || profile.id
-          }" added to matching profiles`
-        );
       }
     }
-
-    console.log(
-      `Extension: Found ${matchingProfiles.length} matching profiles`
-    );
     return matchingProfiles;
   }
 
   urlMatches(url, pattern) {
-    console.log(
-      `Extension: Matching URL "${url}" against pattern "${pattern}"`
-    );
-
     if (!pattern || !url) {
       return false;
     }
@@ -269,27 +200,18 @@ class BackgroundService {
     if (pattern.endsWith("*")) {
       const basePattern = pattern.slice(0, -1);
       const matches = url.startsWith(basePattern);
-      console.log(
-        `Extension: Wildcard match: ${matches} (base: "${basePattern}")`
-      );
       return matches;
     }
 
     if (pattern.startsWith("*")) {
       const endPattern = pattern.slice(1);
       const matches = url.endsWith(endPattern);
-      console.log(
-        `Extension: End wildcard match: ${matches} (end: "${endPattern}")`
-      );
       return matches;
     }
 
     if (pattern.includes("*")) {
       const regex = new RegExp(pattern.replace(/\*/g, ".*"));
       const matches = regex.test(url);
-      console.log(
-        `Extension: Regex wildcard match: ${matches} (regex: ${regex})`
-      );
       return matches;
     }
 
@@ -299,10 +221,6 @@ class BackgroundService {
   }
 
   async showContextMenusForProfiles(matchingProfiles) {
-    console.log(
-      "Extension: Creating context menus for profiles:",
-      matchingProfiles.map((p) => p.name || p.id)
-    );
     try {
       await chrome.contextMenus.removeAll();
 
@@ -316,15 +234,7 @@ class BackgroundService {
         },
         () => {
           if (chrome.runtime.lastError) {
-            console.log(
-              "Main menu creation error (expected on duplicate):",
-              chrome.runtime.lastError.message
-            );
           } else {
-            console.log(
-              "Extension: Created main context menu item:",
-              "quick-add-keyword"
-            );
           }
         }
       );
@@ -340,17 +250,7 @@ class BackgroundService {
           },
           () => {
             if (chrome.runtime.lastError) {
-              console.log(
-                `Profile menu creation error for ${profileId}:`,
-                chrome.runtime.lastError.message
-              );
             } else {
-              console.log(
-                `Extension: Created profile menu for "${
-                  profile.name || profile.id
-                }":`,
-                profileId
-              );
             }
           }
         );
@@ -368,38 +268,21 @@ class BackgroundService {
               },
               () => {
                 if (chrome.runtime.lastError) {
-                  console.log(
-                    `Group menu creation error for ${groupId}:`,
-                    chrome.runtime.lastError.message
-                  );
                 } else {
-                  console.log(
-                    `Extension: Created group menu "${groupName}":`,
-                    groupId
-                  );
                 }
               }
             );
           });
         } else {
-          console.log(
-            `Extension: Profile "${
-              profile.name || profile.id
-            }" has no keyword groups`
-          );
         }
       }
-    } catch (error) {
-      console.error("Error showing context menus:", error);
-    }
+    } catch (error) {}
   }
 
   async hideContextMenus() {
     try {
       await chrome.contextMenus.removeAll();
-    } catch (error) {
-      console.error("Error hiding context menus:", error);
-    }
+    } catch (error) {}
   }
 
   async handleContextMenuClick(info, tab) {
@@ -416,13 +299,6 @@ class BackgroundService {
         const parts = menuId.split("-");
         const profileId = parts[1];
         const groupIndex = parseInt(parts[3], 10);
-
-        console.log("Extension: Parsed menu click:", {
-          profileId,
-          groupIndex,
-          selectedText,
-        });
-
         const result = await this.addKeywordToGroup(
           profileId,
           groupIndex,
@@ -445,14 +321,8 @@ class BackgroundService {
           })
           .catch(() => {});
       } else {
-        console.log(
-          "Extension: Menu ID doesn't match expected pattern:",
-          menuId
-        );
       }
     } catch (error) {
-      console.error("Error handling context menu click:", error);
-
       chrome.tabs
         .sendMessage(tab.id, {
           action: "showNotification",
@@ -512,12 +382,6 @@ class BackgroundService {
             .filter((word) => word.length > 0);
         })
         .filter((keyword, index, array) => array.indexOf(keyword) === index);
-
-      console.log(
-        `Extension: Parsed ${keywords.length} keywords from "${keywordText}":`,
-        keywords
-      );
-
       const addedKeywords = [];
       const existingKeywords = [];
 
@@ -530,14 +394,8 @@ class BackgroundService {
         if (!existingKeyword) {
           group.keywords.push(keyword);
           addedKeywords.push(keyword);
-          console.log(
-            `Extension: Added keyword "${keyword}" to profile ${profileId}, group ${groupIndex}`
-          );
         } else {
           existingKeywords.push(keyword);
-          console.log(
-            `Extension: Keyword "${keyword}" already exists in the group (existing: "${existingKeyword}")`
-          );
         }
       }
 
@@ -587,7 +445,6 @@ class BackgroundService {
         };
       }
     } catch (error) {
-      console.error("Error adding keywords to group:", error);
       throw error;
     }
   }
@@ -603,9 +460,7 @@ class BackgroundService {
         default:
           break;
       }
-    } catch (error) {
-      console.error("Error handling message:", error);
-    }
+    } catch (error) {}
     return true;
   }
 }

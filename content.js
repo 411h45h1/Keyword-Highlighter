@@ -5,35 +5,27 @@ class KeywordHighlighter {
     this.highlightedElements = new Set();
     this.observer = null;
     this.lastProfileSignature = null;
-    this.debugMode = true;
     this.regexCache = new Map();
     this.init();
   }
 
   log(...args) {
-    if (this.debugMode) {
-      console.log(...args);
-    }
   }
 
   logError(...args) {
-    console.error(...args);
   }
 
   async init() {
-    this.log("=== CONTENT SCRIPT INITIALIZING ===");
     await this.loadSettings();
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
     this.setupDOMObserver();
     this.setupUrlChangeDetection();
 
     if (this.isEnabled) {
-      this.log("Extension: Extension is enabled, highlighting page on init");
       this.highlightPage();
       const profiles = this.findAllMatchingProfiles();
       this.lastProfileSignature = this.getProfilesSignature(profiles);
     } else {
-      this.log("Extension: Extension is disabled on init");
     }
 
     this.notifyUrlChange();
@@ -49,7 +41,6 @@ class KeywordHighlighter {
       this.profiles = Array.isArray(result.profiles) ? result.profiles : [];
       this.isEnabled = result.extensionEnabled !== false;
     } catch (error) {
-      console.error("Extension error loading settings:", error);
       this.profiles = [];
       this.isEnabled = true;
     }
@@ -71,15 +62,7 @@ class KeywordHighlighter {
         this.showNotification(request.message, request.type, request.details);
         break;
       case "debugInfo":
-        console.log("=== CONTENT SCRIPT DEBUG INFO ===");
-        console.log("Extension enabled:", this.isEnabled);
-        console.log("Profiles count:", this.profiles?.length || 0);
-        console.log("All profiles:", this.profiles);
-        console.log("Current URL:", window.location.href);
         const matchingProfiles = this.findAllMatchingProfiles();
-        console.log("All matching profiles:", matchingProfiles);
-        console.log("Highlighted elements:", this.highlightedElements.size);
-        console.log("Last profile signature:", this.lastProfileSignature);
 
         this.profiles?.forEach((profile, index) => {
           console.log(`Profile ${index} URL test:`, {
@@ -106,53 +89,35 @@ class KeywordHighlighter {
   }
 
   async handleUpdateProfiles() {
-    console.log("=== HANDLE UPDATE PROFILES ===");
     await this.loadSettings();
 
     if (!this.isEnabled) {
-      console.log("Extension: Extension is disabled, skipping highlighting");
       return;
     }
 
     const newProfiles = this.findAllMatchingProfiles();
     const newSig = this.getProfilesSignature(newProfiles);
-
-    console.log("Extension: Profile signatures:", {
-      old: this.lastProfileSignature,
-      new: newSig,
-      changed: newSig !== this.lastProfileSignature,
-    });
-
     if (newSig === this.lastProfileSignature) {
-      console.log(
-        "Extension: No profile changes, highlighting new content only"
-      );
       this.highlightNewContent();
       return;
     }
 
     if (this.lastProfileSignature) {
-      console.log("Extension: Profile changed, clearing existing highlights");
       this.clearHighlights();
     }
 
     if (newProfiles.length > 0) {
-      console.log("Extension: Highlighting page with new profiles");
       this.highlightPage();
     } else {
-      console.log("Extension: No matching profiles, not highlighting");
     }
 
     this.lastProfileSignature = newSig || null;
   }
 
   async handleForceHighlightRefresh() {
-    console.log("=== FORCE HIGHLIGHT REFRESH ===");
-
     await this.loadSettings();
 
     if (!this.isEnabled) {
-      console.log("Extension: Extension disabled, skipping refresh");
       return;
     }
 
@@ -161,16 +126,12 @@ class KeywordHighlighter {
     const matchingProfiles = this.findAllMatchingProfiles();
 
     if (matchingProfiles.length > 0) {
-      console.log(
-        "Extension: Force refreshing highlights with updated profiles"
-      );
       this.highlightPage();
 
       this.lastProfileSignature = this.getProfilesSignature(matchingProfiles);
 
       this.showHighlightRefreshFeedback();
     } else {
-      console.log("Extension: No matching profiles found for force refresh");
       this.lastProfileSignature = null;
     }
   }
@@ -181,10 +142,6 @@ class KeywordHighlighter {
     const highlightedElements = document.querySelectorAll(".keyword-highlight");
 
     if (highlightedElements.length > 0) {
-      console.log(
-        `Extension: Adding refresh feedback to ${highlightedElements.length} highlighted elements`
-      );
-
       highlightedElements.forEach((element) => {
         element.classList.add("keyword-highlight-flash");
       });
@@ -228,7 +185,6 @@ class KeywordHighlighter {
     `;
 
     document.head.appendChild(style);
-    console.log("Extension: Injected flash effect CSS");
   }
 
   getProfilesSignature(profiles) {
@@ -269,7 +225,6 @@ class KeywordHighlighter {
             this.lastProfileSignature = this.getProfilesSignature(profiles);
           })
           .catch((error) => {
-            console.error("Extension error loading settings:", error);
           });
       } else {
         this.highlightPage();
@@ -362,29 +317,11 @@ class KeywordHighlighter {
     const currentUrl = window.location.href;
     const matchingProfiles = [];
 
-    console.log("Extension: Checking URL matches for:", currentUrl);
-
     if (!this.profiles || !Array.isArray(this.profiles)) {
-      console.log("Extension: No profiles to check");
       return matchingProfiles;
     }
 
     for (const profile of this.profiles) {
-      console.log(
-        `Extension: Checking profile "${profile.name || profile.id}":`,
-        {
-          urlPatterns: profile.urlPatterns?.map((up) => up.urlPattern) || [
-            profile.urlPattern,
-          ],
-          hasKeywordGroups: !!(
-            profile.keywordGroups && profile.keywordGroups.length > 0
-          ),
-          hasLegacyKeywords: !!(
-            profile.keywords && profile.keywords.length > 0
-          ),
-        }
-      );
-
       if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
         let foundMatch = false;
         for (const urlPattern of profile.urlPatterns) {
@@ -393,9 +330,7 @@ class KeywordHighlighter {
             : [urlPattern.urlPattern];
 
           for (const pattern of patterns) {
-            console.log(`Extension: Testing pattern "${pattern}" against URL`);
             if (this.urlMatches(currentUrl, pattern)) {
-              console.log(`Extension: ✓ Pattern "${pattern}" matches!`);
               matchingProfiles.push({
                 ...profile,
                 currentUrlPattern: urlPattern,
@@ -405,39 +340,21 @@ class KeywordHighlighter {
               foundMatch = true;
               break;
             } else {
-              console.log(`Extension: ✗ Pattern "${pattern}" does not match`);
             }
           }
 
           if (foundMatch) break;
         }
         if (foundMatch) {
-          console.log(
-            `Extension: Profile "${profile.name || profile.id}" had ${
-              matchingProfiles.filter(
-                (p) => p.name === profile.name || p.id.startsWith(profile.id)
-              ).length
-            } matching URL patterns`
-          );
         }
       } else if (
         profile.urlPattern &&
         this.urlMatches(currentUrl, profile.urlPattern)
       ) {
-        console.log(
-          `Extension: ✓ Legacy pattern "${profile.urlPattern}" matches!`
-        );
         matchingProfiles.push(profile);
       } else if (profile.urlPattern) {
-        console.log(
-          `Extension: ✗ Legacy pattern "${profile.urlPattern}" does not match`
-        );
       }
     }
-
-    console.log(
-      `Extension: Found ${matchingProfiles.length} matching profiles total`
-    );
     return matchingProfiles;
   }
 
@@ -489,8 +406,6 @@ class KeywordHighlighter {
   }
 
   handleUrlChange() {
-    console.log("Extension: URL changed to:", window.location.href);
-
     this.notifyUrlChange();
 
     if (this.isEnabled) {
@@ -499,42 +414,19 @@ class KeywordHighlighter {
   }
 
   notifyUrlChange() {
-    console.log(
-      "Extension: Notifying background script of URL change:",
-      window.location.href
-    );
     try {
-      chrome.runtime
-        .sendMessage({
-          action: "updateContextMenus",
-          url: window.location.href,
-        })
-        .then(() => {
-          console.log("Extension: Successfully notified background script");
-        })
-        .catch((error) => {
-          console.log("Extension: Background script not ready:", error.message);
-        });
+      chrome.runtime.sendMessage({
+        action: "updateContextMenus",
+        url: window.location.href,
+      });
     } catch (error) {
-      console.error("Error notifying URL change:", error);
     }
   }
 
   buildKeywordColorMap(matchingProfiles) {
     const keywordColorMap = new Map();
     let exactCase = false;
-
-    console.log("=== BUILDING KEYWORD COLOR MAP ===");
-    console.log(
-      `Extension: Processing ${matchingProfiles.length} matching profiles`
-    );
-
     matchingProfiles.forEach((profile, profileIndex) => {
-      console.log(
-        `Extension: Processing profile ${profileIndex}: "${
-          profile.name || profile.id
-        }"`
-      );
       console.log(`Extension: Profile data:`, {
         id: profile.id,
         name: profile.name,
@@ -548,11 +440,6 @@ class KeywordHighlighter {
 
       if (profile.exactCase) {
         exactCase = true;
-        console.log(
-          `Extension: Exact case matching enabled by profile "${
-            profile.name || profile.id
-          }"`
-        );
       }
 
       if (profile.currentUrlPattern) {
@@ -561,16 +448,9 @@ class KeywordHighlighter {
           (Array.isArray(profile.currentUrlPattern.urlPattern)
             ? profile.currentUrlPattern.urlPattern[0]
             : profile.currentUrlPattern.urlPattern);
-        console.log(
-          `Extension: Profile has currentUrlPattern: "${urlDisplay}" with color overrides:`,
-          profile.currentUrlPattern.colorOverrides
-        );
       }
 
       if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
-        console.log(
-          `Extension: Profile has ${profile.keywordGroups.length} keyword groups`
-        );
         profile.keywordGroups.forEach((group, groupIndex) => {
           console.log(`Extension: Processing group ${groupIndex}:`, {
             groupId: group?.id,
@@ -602,23 +482,14 @@ class KeywordHighlighter {
                   (Array.isArray(profile.currentUrlPattern.urlPattern)
                     ? profile.currentUrlPattern.urlPattern[0]
                     : profile.currentUrlPattern.urlPattern);
-                console.log(
-                  `Extension: Using color override for group ${group.id} from pattern "${urlDisplay}": ${color}`
-                );
               } else {
                 const urlDisplay =
                   profile.matchedUrl ||
                   (Array.isArray(profile.currentUrlPattern.urlPattern)
                     ? profile.currentUrlPattern.urlPattern[0]
                     : profile.currentUrlPattern.urlPattern);
-                console.log(
-                  `Extension: No color override found for group ${group.id} in pattern "${urlDisplay}"`
-                );
               }
             } else {
-              console.log(
-                `Extension: Using default color for group ${group.id}: ${color}`
-              );
             }
 
             if (
@@ -628,9 +499,6 @@ class KeywordHighlighter {
             ) {
               textColor =
                 profile.currentUrlPattern.textColorOverrides["global"];
-              console.log(
-                `Extension: Using global text color override: ${textColor}`
-              );
             }
 
             group.keywords.forEach((keyword) => {
@@ -644,23 +512,12 @@ class KeywordHighlighter {
 
                 if (keywordColorMap.has(keywordKey)) {
                   keywordColorMap.get(keywordKey).push(colorInfo);
-                  console.log(
-                    `Extension: Keyword "${keywordKey}" now has multiple color sets:`,
-                    keywordColorMap.get(keywordKey)
-                  );
                 } else {
                   keywordColorMap.set(keywordKey, [colorInfo]);
-                  console.log(
-                    `Extension: Added keyword "${keywordKey}" (original: "${keyword}") with colors:`,
-                    colorInfo
-                  );
                 }
               }
             });
           } else {
-            console.log(
-              `Extension: Skipping empty or invalid group ${groupIndex}`
-            );
           }
         });
       } else if (
@@ -669,7 +526,6 @@ class KeywordHighlighter {
         profile.keywords.length > 0
       ) {
         const color = profile.color || "#ffff00";
-        console.log(`Extension: Processing legacy keywords with color:`, color);
 
         profile.keywords.forEach((keyword) => {
           const normalizedKeyword = keyword.toLowerCase().trim();
@@ -678,35 +534,14 @@ class KeywordHighlighter {
 
             if (keywordColorMap.has(normalizedKeyword)) {
               keywordColorMap.get(normalizedKeyword).push(colorInfo);
-              console.log(
-                `Extension: Legacy keyword "${normalizedKeyword}" now has multiple colors:`,
-                keywordColorMap.get(normalizedKeyword)
-              );
             } else {
               keywordColorMap.set(normalizedKeyword, [colorInfo]);
-              console.log(
-                `Extension: Added legacy keyword "${normalizedKeyword}" with color:`,
-                colorInfo
-              );
             }
           }
         });
       } else {
-        console.log(
-          `Extension: Profile has no keyword groups or invalid keyword groups array`
-        );
       }
     });
-
-    console.log(
-      `Extension: Final keyword color map has ${keywordColorMap.size} unique keywords`
-    );
-    console.log(`Extension: Exact case mode enabled: ${exactCase}`);
-    console.log(
-      "Extension: Final keyword list:",
-      Array.from(keywordColorMap.keys())
-    );
-    console.log("=== KEYWORD COLOR MAP COMPLETE ===");
     return { keywordColorMap, exactCase };
   }
 
@@ -791,84 +626,32 @@ class KeywordHighlighter {
   }
 
   highlightPage() {
-    console.log("=== STARTING HIGHLIGHT PAGE ===");
-
     if (!this.profiles || !Array.isArray(this.profiles)) {
-      console.log("Extension: No profiles array found");
       return;
     }
-
-    console.log(`Extension: Found ${this.profiles.length} total profiles`);
-    console.log("Extension: Current URL:", window.location.href);
 
     const matchingProfiles = this.findAllMatchingProfiles();
 
     if (matchingProfiles.length === 0) {
-      console.log(
-        "Extension: No matching profiles found for URL:",
-        window.location.href
-      );
-      console.log(
-        "Extension: Available profiles:",
-        this.profiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          urlPatterns: p.urlPatterns?.map((up) => up.urlPattern) || [
-            p.urlPattern,
-          ],
-          keywordGroups: p.keywordGroups?.length || 0,
-        }))
-      );
       return;
     }
-
-    console.log(
-      `Extension: Found ${matchingProfiles.length} matching profiles:`,
-      matchingProfiles.map((p) => ({
-        id: p.id,
-        name: p.name,
-        keywordGroups: p.keywordGroups?.length || 0,
-      }))
-    );
-
     const { keywordColorMap, exactCase } =
       this.buildKeywordColorMap(matchingProfiles);
-    console.log(
-      "Extension: Final keyword color map size:",
-      keywordColorMap.size
-    );
-    console.log(
-      "Extension: Keyword color map entries:",
-      Array.from(keywordColorMap.entries())
-    );
-    console.log("Extension: Exact case matching:", exactCase);
-
     try {
       this.highlightWithKeywordMap(document.body, keywordColorMap, exactCase);
     } catch (error) {
-      console.error("Extension error during highlighting:", error);
     }
   }
 
   highlightNewContent() {
-    console.log("=== HIGHLIGHTING NEW CONTENT ===");
-
     const matchingProfiles = this.findAllMatchingProfiles();
     if (matchingProfiles.length === 0) {
-      console.log(
-        "Extension: No matching profiles for new content highlighting"
-      );
       return;
     }
 
     const unprocessedElements = document.body.querySelectorAll(
       "*:not([data-highlighted])"
     );
-
-    console.log(
-      `Extension: Found ${unprocessedElements.length} unprocessed elements`
-    );
-
     if (unprocessedElements.length > 0) {
       const { keywordColorMap, exactCase } =
         this.buildKeywordColorMap(matchingProfiles);
@@ -900,16 +683,7 @@ class KeywordHighlighter {
   }
 
   highlightWithKeywordMap(rootElement, keywordColorMap, exactCase = false) {
-    console.log("Extension: highlightWithKeywordMap called with:", {
-      rootElement: rootElement?.tagName,
-      keywordCount: keywordColorMap.size,
-      exactCase: exactCase,
-    });
-
     if (!rootElement || keywordColorMap.size === 0) {
-      console.log(
-        "Extension: highlightWithKeywordMap early return - invalid parameters"
-      );
       return;
     }
 
@@ -956,11 +730,6 @@ class KeywordHighlighter {
       textNodes.push(node);
       nodeCount++;
     }
-
-    console.log(
-      `Extension: Found ${textNodes.length} text nodes to process (max: ${maxNodes})`
-    );
-
     const batchSize = 50;
     let currentIndex = 0;
 
@@ -972,9 +741,6 @@ class KeywordHighlighter {
         if (textNode && textNode.parentNode) {
           this.highlightTextNodeWithMap(textNode, keywordColorMap, exactCase);
         } else {
-          console.log(
-            "Extension: Skipping disconnected text node in batch processing"
-          );
         }
       }
 
@@ -998,7 +764,6 @@ class KeywordHighlighter {
     }
 
     if (!textNode.parentNode) {
-      console.log("Extension: Text node has no parent, skipping processing");
       return;
     }
 
@@ -1016,8 +781,6 @@ class KeywordHighlighter {
         (a, b) => b.length - a.length
       );
 
-      console.log("Extension: Keywords sorted by length:", keywords);
-
       const singleLetterKeywords = keywords.filter((k) => /^[a-zA-Z]$/.test(k));
       const otherKeywords = keywords.filter((k) => !/^[a-zA-Z]$/.test(k));
 
@@ -1027,11 +790,6 @@ class KeywordHighlighter {
           .join("|");
 
         const singleLetterRegex = new RegExp(`(${singleLetterPattern})`, "g");
-        console.log(
-          "Extension: Using case-sensitive regex for single letters:",
-          singleLetterRegex
-        );
-
         highlightedText = highlightedText.replace(
           singleLetterRegex,
           (match) => {
@@ -1039,12 +797,6 @@ class KeywordHighlighter {
 
             const lookupKey = match.toLowerCase().trim();
             const colors = keywordColorMap.get(lookupKey);
-
-            console.log(
-              `Extension: Found single letter match "${match}" (lookup key: "${lookupKey}") with colors:`,
-              colors
-            );
-
             if (colors && colors.length > 0) {
               if (colors.length === 1) {
                 const colorInfo = colors[0];
@@ -1069,11 +821,6 @@ class KeywordHighlighter {
                     })
                   );
                 });
-                console.log(
-                  `Extension: Creating blinking highlight for single letter "${match}" with unique colors:`,
-                  uniqueColorInfos
-                );
-
                 const uniqueBackgroundColors = uniqueColorInfos.map((info) =>
                   typeof info === "object" ? info.backgroundColor : info
                 );
@@ -1106,22 +853,11 @@ class KeywordHighlighter {
           .join("|");
 
         const regex = new RegExp(`(${keywordPattern})`, "gi");
-        console.log(
-          "Extension: Using case-insensitive regex for multi-character keywords:",
-          regex
-        );
-
         highlightedText = highlightedText.replace(regex, (match) => {
           hasHighlights = true;
 
           const lookupKey = match.toLowerCase().trim();
           const colors = keywordColorMap.get(lookupKey);
-
-          console.log(
-            `Extension: Found match "${match}" (lookup key: "${lookupKey}") with colors:`,
-            colors
-          );
-
           if (colors && colors.length > 0) {
             if (colors.length === 1) {
               const colorInfo = colors[0];
@@ -1146,11 +882,6 @@ class KeywordHighlighter {
                   })
                 );
               });
-              console.log(
-                `Extension: Creating blinking highlight for "${match}" with unique colors:`,
-                uniqueColorInfos
-              );
-
               const uniqueBackgroundColors = uniqueColorInfos.map((info) =>
                 typeof info === "object" ? info.backgroundColor : info
               );
@@ -1177,12 +908,7 @@ class KeywordHighlighter {
       }
 
       if (hasHighlights) {
-        console.log("Extension: Applying highlights to text node");
-
         if (!textNode.parentNode) {
-          console.log(
-            "Extension: Text node no longer has a parent, skipping highlight application"
-          );
           return;
         }
 
@@ -1195,22 +921,11 @@ class KeywordHighlighter {
           this.highlightedElements.add(wrapper);
 
           this.createBlinkingAnimations(wrapper);
-
-          console.log(
-            "Extension: Successfully applied highlights, total highlighted elements:",
-            this.highlightedElements.size
-          );
         } catch (error) {
-          console.log(
-            "Extension: Failed to replace text node (DOM may have changed):",
-            error.message
-          );
         }
       } else {
-        console.log("Extension: No highlights found in this text node");
       }
     } catch (error) {
-      console.error("Error in highlightTextNodeWithMap:", error);
     }
   }
 
@@ -1228,10 +943,6 @@ class KeywordHighlighter {
         if (!addedAnimations.has(hash)) {
           addedAnimations.add(hash);
           this.addBlinkingAnimation(hash, colors);
-          console.log(
-            `Extension: Created blinking animation for colors:`,
-            colors
-          );
         }
       }
     });
@@ -1270,10 +981,6 @@ class KeywordHighlighter {
     `;
 
     document.head.appendChild(style);
-    console.log(
-      `Extension: Added CSS animation keyword-blink-${hash} for colors:`,
-      colors
-    );
   }
 
   highlightTextNode(textNode, keywords, color) {
@@ -1302,31 +1009,23 @@ class KeywordHighlighter {
         .join("|");
 
       const regex = new RegExp(`\\b(${keywordPattern})\\b`, "gi");
-      console.log("Extension: Using regex pattern:", regex);
 
       highlightedText = highlightedText.replace(regex, (match) => {
         hasHighlights = true;
-        console.log("Extension: Found match:", match);
+
         return `<span class="keyword-highlight" style="background-color: ${color}; padding: 1px 2px;">${match}</span>`;
       });
 
       if (hasHighlights) {
-        console.log("Extension: Applying highlights to text node");
         const wrapper = document.createElement("span");
         wrapper.innerHTML = highlightedText;
         wrapper.setAttribute("data-keyword-wrapper", "true");
 
         textNode.parentNode.replaceChild(wrapper, textNode);
         this.highlightedElements.add(wrapper);
-        console.log(
-          "Extension: Successfully applied highlights, total highlighted elements:",
-          this.highlightedElements.size
-        );
       } else {
-        console.log("Extension: No highlights found in this text node");
       }
     } catch (error) {
-      console.error("Error in highlightTextNode:", error);
     }
   }
 
@@ -1351,9 +1050,6 @@ class KeywordHighlighter {
     if (keyword.length === 1 && /^[a-zA-Z]$/.test(keyword)) {
       const pattern = `\\b${escaped}\\b`;
       this.regexCache.set(cacheKey, pattern);
-      console.log(
-        `Extension: Single letter keyword "${keyword}" using exact word boundary pattern: ${pattern}`
-      );
       return pattern;
     }
 
@@ -1390,16 +1086,9 @@ class KeywordHighlighter {
   clearHighlights() {
     if (this.regexCache.size > 1000) {
       this.regexCache.clear();
-      this.log("Extension: Cleared regex cache to prevent memory leaks");
     }
 
-    this.log("=== CLEARING HIGHLIGHTS ===");
-
     const highlightedSpans = document.querySelectorAll(".keyword-highlight");
-    this.log(
-      `Extension: Removing ${highlightedSpans.length} highlighted spans`
-    );
-
     highlightedSpans.forEach((span) => {
       const parent = span.parentNode;
       if (parent) {
@@ -1409,7 +1098,6 @@ class KeywordHighlighter {
     });
 
     const wrappers = document.querySelectorAll("[data-keyword-wrapper]");
-    this.log(`Extension: Removing ${wrappers.length} wrapper spans`);
 
     wrappers.forEach((wrapper) => {
       const parent = wrapper.parentNode;
@@ -1423,10 +1111,6 @@ class KeywordHighlighter {
     });
 
     const processedElements = document.querySelectorAll("[data-highlighted]");
-    this.log(
-      `Extension: Removing data-highlighted from ${processedElements.length} elements`
-    );
-
     processedElements.forEach((element) => {
       element.removeAttribute("data-highlighted");
     });
@@ -1434,16 +1118,11 @@ class KeywordHighlighter {
     const animationStyles = document.querySelectorAll(
       'style[id^="keyword-blink-"]'
     );
-    this.log(
-      `Extension: Removing ${animationStyles.length} CSS animation styles`
-    );
-
     animationStyles.forEach((style) => {
       style.remove();
     });
 
     this.highlightedElements.clear();
-    this.log("Extension: Cleared all highlights and animations");
   }
 
   showNotification(message, type = "success", details = "") {
@@ -1497,8 +1176,6 @@ class KeywordHighlighter {
         }, 150);
       }
     }, timeout);
-
-    console.log(`Notification shown: ${message} (${type})`);
   }
 
   injectNotificationCSS() {
@@ -1608,7 +1285,6 @@ class KeywordHighlighter {
     `;
 
     document.head.appendChild(style);
-    console.log("Extension: Injected clean notification CSS");
   }
 }
 
@@ -1620,48 +1296,3 @@ if (document.readyState === "loading") {
   window.keywordHighlighter = new KeywordHighlighter();
 }
 
-window.debugExtension = function (enabled = true) {
-  if (window.keywordHighlighter) {
-    window.keywordHighlighter.debug = enabled;
-    console.log(`Extension debugging ${enabled ? "enabled" : "disabled"}`);
-    if (enabled) {
-      console.log("Available debug functions:");
-      console.log("- debugExtension(false) - disable debugging");
-      console.log(
-        "- runExtensionDiagnostics() - run comprehensive diagnostics"
-      );
-      console.log(
-        "- window.keywordHighlighter.findMatchingProfile() - check current profile"
-      );
-      console.log(
-        "- window.keywordHighlighter.highlightPage() - manually highlight page"
-      );
-    }
-  } else {
-    console.log("Extension not loaded yet");
-  }
-};
-
-window.showExtensionInfo = function () {
-  if (window.keywordHighlighter) {
-    const highlighter = window.keywordHighlighter;
-    console.log("Extension Info:", {
-      enabled: highlighter.isEnabled,
-      profileCount: highlighter.profiles ? highlighter.profiles.length : 0,
-      currentUrl: window.location.href,
-      matchingProfile: highlighter.findMatchingProfile(),
-      highlightedElements: highlighter.highlightedElements.size,
-    });
-  } else {
-    console.log("Extension not loaded yet");
-  }
-};
-
-window.runExtensionDiagnostics = function () {
-  if (window.keywordHighlighter) {
-    return window.keywordHighlighter.runDiagnostics();
-  } else {
-    console.error("Extension not loaded yet");
-    return null;
-  }
-};

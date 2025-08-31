@@ -268,10 +268,6 @@ class KeywordHighlighterPopup {
 
   handleExactCaseToggle(event) {
     this.exactCase = event.target.checked;
-    console.log(
-      `Exact case matching: ${this.exactCase ? "enabled" : "disabled"}`
-    );
-
     if (this.keywordBank.length > 0) {
       this.displayKeywordBankPreview(this.keywordBank);
     }
@@ -526,13 +522,6 @@ class KeywordHighlighterPopup {
         keywords.push(...groupKeywords);
       }
     });
-
-    console.log("Extension Debug - getAllKeywordsFromGroups:", {
-      exactCase: this.exactCase,
-      uniqueKeywords: this.uniqueKeywords,
-      foundKeywords: keywords,
-    });
-
     return keywords;
   }
 
@@ -558,7 +547,6 @@ class KeywordHighlighterPopup {
     try {
       await chrome.storage.sync.set({ keywordBank: this.keywordBank });
     } catch (error) {
-      console.error("Error saving keyword bank:", error);
     }
   }
 
@@ -1128,11 +1116,6 @@ class KeywordHighlighterPopup {
             invalidUrls.push(url);
           }
         });
-
-        console.log(
-          `Pattern ${index}: Valid URLs: ${validUrls.length}, Invalid URLs: ${invalidUrls.length}`
-        );
-
         if (validUrls.length > 0) {
           hasValidPatterns = true;
         }
@@ -1150,13 +1133,6 @@ class KeywordHighlighterPopup {
 
     const isValid = hasValidPatterns && hasValidGroups;
     saveButton.disabled = !isValid;
-
-    console.log("URL validation result:", {
-      hasValidPatterns,
-      hasValidGroups,
-      isValid,
-      saveButtonDisabled: saveButton.disabled,
-    });
   }
 
   async handleSaveProfile() {
@@ -1168,14 +1144,6 @@ class KeywordHighlighterPopup {
     const profileName = document.getElementById("profileName").value.trim();
     const keywordGroups = document.querySelectorAll(".keyword-group");
     const urlPatterns = document.querySelectorAll(".url-pattern");
-
-    console.log("Save profile data:", {
-      profileName,
-      keywordGroupsCount: keywordGroups.length,
-      urlPatternsCount: urlPatterns.length,
-      currentEditingId: this.currentEditingId,
-    });
-
     let patterns = [];
     let hasValidPatterns = false;
 
@@ -1233,22 +1201,13 @@ class KeywordHighlighterPopup {
                   // Only save text color if checkbox is checked and valid hex
                   if (textValue && /^#[0-9A-F]{6}$/i.test(textValue)) {
                     textColorOverrides[groupId] = textValue;
-                    console.log(
-                      `Saving text color override for pattern ${patternIndex}, group ${groupId}: ${textValue}`
-                    );
                   }
                 } else {
-                  console.log(
-                    `Text color disabled for pattern ${patternIndex}, group ${groupId} - not saving any text color data`
-                  );
                   // Explicitly ensure no text color is saved when disabled
                   // textColorOverrides[groupId] will remain undefined
                 }
               } else {
                 colorOverrides[groupId] = input.value;
-                console.log(
-                  `Saving color override for pattern ${patternIndex}, group ${groupId}: ${input.value}`
-                );
               }
             }
           });
@@ -1323,7 +1282,6 @@ class KeywordHighlighterPopup {
       this.resetForm();
       await this.loadProfiles();
     } catch (error) {
-      console.error("Error saving profile:", error);
       alert("Error saving profile: " + error.message);
     }
   }
@@ -1333,10 +1291,6 @@ class KeywordHighlighterPopup {
       const urlToTest = pattern.replace(/\*$/, "");
 
       const url = new URL(urlToTest);
-      console.log(
-        `    Parsed URL: protocol="${url.protocol}", hostname="${url.hostname}"`
-      );
-
       if (!["http:", "https:", "file:"].includes(url.protocol)) {
         return false;
       }
@@ -3302,15 +3256,9 @@ class KeywordHighlighterPopup {
                   );
                   if (colorInput) {
                     colorInput.value = color;
-                    console.log(
-                      `Set color input for group ${groupId} to ${color}`
-                    );
                   }
                   if (textInput) {
                     textInput.value = color;
-                    console.log(
-                      `Set text input for group ${groupId} to ${color}`
-                    );
                   }
                 }
               );
@@ -3955,14 +3903,6 @@ document.addEventListener("DOMContentLoaded", () => {
       "extensionEnabled",
       "keywordBank",
     ]);
-
-    console.log("Popup state:", {
-      profileMode: popup.profileMode,
-      uniqueKeywords: popup.uniqueKeywords,
-      keywordBank: popup.keywordBank,
-      cachedProfiles: popup.cachedProfiles,
-    });
-
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]) {
       try {
@@ -3974,21 +3914,3 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 });
 
-window.popupDebug = {
-  async getStorageInfo() {
-    return await chrome.storage.sync.get([
-      "profiles",
-      "extensionEnabled",
-      "keywordBank",
-    ]);
-  },
-
-  async testNotification() {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tabs[0]) {
-      return await chrome.tabs.sendMessage(tabs[0].id, {
-        action: "updateProfiles",
-      });
-    }
-  },
-};
