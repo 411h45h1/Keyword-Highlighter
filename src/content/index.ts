@@ -53,25 +53,43 @@ class KeywordHighlighter {
   private handleMessage(
     request: ChromeMessage,
     _sender: chrome.runtime.MessageSender,
-    _sendResponse: (response?: unknown) => void
-  ): boolean {
+    sendResponse: (response?: unknown) => void
+  ): boolean | void {
     switch (request.action) {
       case 'updateProfiles':
         this.handleUpdateProfiles()
-        break
+          .then(() => {
+            sendResponse({ success: true })
+          })
+          .catch((error) => {
+            console.error('Error updating profiles:', error)
+            sendResponse({ success: false, error: error.message })
+          })
+        return true // Indicates async response
       case 'toggleExtension': {
         const enabled = (request as any).enabled
         this.handleToggleExtension(enabled)
+        sendResponse({ success: true })
         break
       }
       case 'showNotification':
         NotificationManager.showNotification(request.message || '', request.type, request.details)
+        sendResponse({ success: true })
         break
       case 'forceHighlightRefresh':
         this.handleForceHighlightRefresh()
+          .then(() => {
+            sendResponse({ success: true })
+          })
+          .catch((error) => {
+            console.error('Error refreshing highlights:', error)
+            sendResponse({ success: false, error: error.message })
+          })
+        return true // Indicates async response
+      default:
+        sendResponse({ success: false, error: 'Unknown action' })
         break
     }
-    return true
   }
 
   private async handleUpdateProfiles(): Promise<void> {
@@ -213,10 +231,23 @@ class KeywordHighlighter {
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    new KeywordHighlighter()
-  })
+// Ensure we have a valid document and window before initializing
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        new KeywordHighlighter()
+      } catch (error) {
+        console.error('Error initializing KeywordHighlighter on DOMContentLoaded:', error)
+      }
+    })
+  } else {
+    try {
+      new KeywordHighlighter()
+    } catch (error) {
+      console.error('Error initializing KeywordHighlighter:', error)
+    }
+  }
 } else {
-  new KeywordHighlighter()
+  console.warn('Window or document not available, skipping KeywordHighlighter initialization')
 }

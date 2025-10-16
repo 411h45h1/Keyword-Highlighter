@@ -12,28 +12,37 @@ export class HighlightManager {
   }
 
   clearHighlights(): void {
-    const highlights = document.querySelectorAll('.keyword-highlight')
-    highlights.forEach((highlight) => {
-      const parent = highlight.parentNode
-      if (parent) {
-        parent.replaceChild(document.createTextNode(highlight.textContent || ''), highlight)
-        parent.normalize()
-      }
-    })
+    if (!document || !document.querySelectorAll) {
+      console.warn('Document not available for clearing highlights')
+      return
+    }
 
-    const highlightedSpans = document.querySelectorAll('span[data-highlighted]')
-    highlightedSpans.forEach((span) => {
-      const parent = span.parentNode
-      if (parent) {
-        parent.replaceChild(document.createTextNode(span.textContent || ''), span)
-        parent.normalize()
-      }
-    })
+    try {
+      const highlights = document.querySelectorAll('.keyword-highlight')
+      highlights.forEach((highlight) => {
+        const parent = highlight.parentNode
+        if (parent) {
+          parent.replaceChild(document.createTextNode(highlight.textContent || ''), highlight)
+          parent.normalize()
+        }
+      })
 
-    const markedElements = document.querySelectorAll('[data-highlighted]')
-    markedElements.forEach((el) => el.removeAttribute('data-highlighted'))
+      const highlightedSpans = document.querySelectorAll('span[data-highlighted]')
+      highlightedSpans.forEach((span) => {
+        const parent = span.parentNode
+        if (parent) {
+          parent.replaceChild(document.createTextNode(span.textContent || ''), span)
+          parent.normalize()
+        }
+      })
 
-    this.highlightedElements.clear()
+      const markedElements = document.querySelectorAll('[data-highlighted]')
+      markedElements.forEach((el) => el.removeAttribute('data-highlighted'))
+
+      this.highlightedElements.clear()
+    } catch (error) {
+      console.error('Error clearing highlights:', error)
+    }
   }
 
   buildKeywordColorMap(profiles: Profile[]): {
@@ -250,48 +259,73 @@ export class HighlightManager {
       fragment.appendChild(wrapper.firstChild)
     }
 
-    textNode.parentNode.replaceChild(fragment, textNode)
-    this.createBlinkingAnimations(textNode.parentNode as Element)
+    const parentElement = textNode.parentNode
+    parentElement.replaceChild(fragment, textNode)
+
+    // Only call createBlinkingAnimations if parentElement is a valid Element
+    if (parentElement && parentElement.nodeType === Node.ELEMENT_NODE) {
+      this.createBlinkingAnimations(parentElement as Element)
+    }
   }
 
   private createBlinkingAnimations(wrapper: Element): void {
-    const blinkingElements = wrapper.querySelectorAll('.keyword-highlight-blink')
-    const addedAnimations = new Set<string>()
+    if (!wrapper || !wrapper.querySelectorAll) {
+      console.warn('Invalid wrapper element for blinking animations')
+      return
+    }
 
-    blinkingElements.forEach((element) => {
-      const style = (element as HTMLElement).style
-      const animation = style.animation
-      const match = animation.match(/keyword-blink-(\w+)/)
-      if (match && !addedAnimations.has(match[1])) {
-        addedAnimations.add(match[1])
-      }
-    })
+    try {
+      const blinkingElements = wrapper.querySelectorAll('.keyword-highlight-blink')
+      const addedAnimations = new Set<string>()
+
+      blinkingElements.forEach((element) => {
+        const style = (element as HTMLElement).style
+        const animation = style.animation
+        const match = animation.match(/keyword-blink-(\w+)/)
+        if (match && !addedAnimations.has(match[1])) {
+          addedAnimations.add(match[1])
+        }
+      })
+    } catch (error) {
+      console.error('Error creating blinking animations:', error)
+    }
   }
 
   private addBlinkingAnimation(hash: string, colors: string[]): void {
+    if (!document || !document.getElementById || !document.createElement) {
+      console.warn('Document not available for blinking animation')
+      return
+    }
+
     const styleId = `keyword-blink-${hash}`
     if (document.getElementById(styleId)) {
       return
     }
 
-    const style = document.createElement('style')
-    style.id = styleId
+    try {
+      const style = document.createElement('style')
+      style.id = styleId
 
-    const steps = colors
-      .map((color, index) => {
-        const percentage = (index / colors.length) * 100
-        return `${percentage}% { background-color: ${color}; }`
-      })
-      .join('\n')
+      const steps = colors
+        .map((color, index) => {
+          const percentage = (index / colors.length) * 100
+          return `${percentage}% { background-color: ${color}; }`
+        })
+        .join('\n')
 
-    style.textContent = `
-      @keyframes keyword-blink-${hash} {
-        ${steps}
-        100% { background-color: ${colors[0]}; }
+      style.textContent = `
+        @keyframes keyword-blink-${hash} {
+          ${steps}
+          100% { background-color: ${colors[0]}; }
+        }
+      `
+
+      if (document.head) {
+        document.head.appendChild(style)
       }
-    `
-
-    document.head.appendChild(style)
+    } catch (error) {
+      console.error('Error adding blinking animation:', error)
+    }
   }
 
   private getColorHash(colors: string[]): string {

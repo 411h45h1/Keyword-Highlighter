@@ -15,37 +15,46 @@ export class DOMProcessor {
       this.observer.disconnect()
     }
 
-    this.observer = new MutationObserver((mutations) => {
-      if (this.isProcessing) return
+    if (!document || !document.body) {
+      console.warn('Document body not available for observer setup')
+      return
+    }
 
-      let shouldProcess = false
-      const addedElements: Element[] = []
+    try {
+      this.observer = new MutationObserver((mutations) => {
+        if (this.isProcessing) return
 
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          for (const node of Array.from(mutation.addedNodes)) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-              const element = node as Element
-              if (this.shouldProcessElement(element)) {
-                addedElements.push(element)
-                shouldProcess = true
+        let shouldProcess = false
+        const addedElements: Element[] = []
+
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+            for (const node of Array.from(mutation.addedNodes)) {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const element = node as Element
+                if (this.shouldProcessElement(element)) {
+                  addedElements.push(element)
+                  shouldProcess = true
+                }
               }
             }
           }
         }
-      }
 
-      if (shouldProcess && addedElements.length > 0) {
-        this.debounceMutation(() => {
-          onMutation?.()
-        })
-      }
-    })
+        if (shouldProcess && addedElements.length > 0) {
+          this.debounceMutation(() => {
+            onMutation?.()
+          })
+        }
+      })
 
-    this.observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    })
+      this.observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      })
+    } catch (error) {
+      console.error('Error setting up DOM observer:', error)
+    }
   }
 
   disconnectObserver(): void {
@@ -80,11 +89,18 @@ export class DOMProcessor {
   ): void {
     if (this.isProcessing || keywordColorMap.size === 0) return
 
+    if (!document || !document.body) {
+      console.warn('Document body not available for processing')
+      return
+    }
+
     this.isProcessing = true
     this.disconnectObserver()
 
     try {
       this.processElement(document.body, keywordColorMap, exactCase)
+    } catch (error) {
+      console.error('Error processing document:', error)
     } finally {
       this.isProcessing = false
       this.setupObserver()
@@ -96,37 +112,46 @@ export class DOMProcessor {
     keywordColorMap: Map<string, Array<{ backgroundColor: string; textColor?: string }>>,
     exactCase: boolean
   ): void {
-    const walker = document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => {
-        const parent = node.parentNode as Element
-        if (!parent) return NodeFilter.FILTER_REJECT
-
-        const tagName = parent.tagName?.toLowerCase()
-        const skipTags = ['script', 'style', 'noscript', 'svg', 'canvas', 'iframe']
-        if (skipTags.includes(tagName)) return NodeFilter.FILTER_REJECT
-
-        if (parent.classList?.contains('keyword-highlight')) return NodeFilter.FILTER_REJECT
-        if (parent.hasAttribute?.('data-highlighted')) return NodeFilter.FILTER_REJECT
-        if (parent.hasAttribute?.('contenteditable')) return NodeFilter.FILTER_REJECT
-
-        return NodeFilter.FILTER_ACCEPT
-      },
-    })
-
-    const textNodes: Text[] = []
-    let node: Node | null
-    let nodeCount = 0
-    const maxNodes = 2000
-
-    while ((node = walker.nextNode()) && nodeCount < maxNodes) {
-      const textContent = node.textContent?.trim()
-      if (textContent && textContent.length > 0) {
-        textNodes.push(node as Text)
-        nodeCount++
-      }
+    if (!rootElement || !document) {
+      console.warn('Invalid element or document for processing')
+      return
     }
 
-    this.processTextNodesBatch(textNodes, keywordColorMap, exactCase)
+    try {
+      const walker = document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => {
+          const parent = node.parentNode as Element
+          if (!parent) return NodeFilter.FILTER_REJECT
+
+          const tagName = parent.tagName?.toLowerCase()
+          const skipTags = ['script', 'style', 'noscript', 'svg', 'canvas', 'iframe']
+          if (skipTags.includes(tagName)) return NodeFilter.FILTER_REJECT
+
+          if (parent.classList?.contains('keyword-highlight')) return NodeFilter.FILTER_REJECT
+          if (parent.hasAttribute?.('data-highlighted')) return NodeFilter.FILTER_REJECT
+          if (parent.hasAttribute?.('contenteditable')) return NodeFilter.FILTER_REJECT
+
+          return NodeFilter.FILTER_ACCEPT
+        },
+      })
+
+      const textNodes: Text[] = []
+      let node: Node | null
+      let nodeCount = 0
+      const maxNodes = 2000
+
+      while ((node = walker.nextNode()) && nodeCount < maxNodes) {
+        const textContent = node.textContent?.trim()
+        if (textContent && textContent.length > 0) {
+          textNodes.push(node as Text)
+          nodeCount++
+        }
+      }
+
+      this.processTextNodesBatch(textNodes, keywordColorMap, exactCase)
+    } catch (error) {
+      console.error('Error highlighting text node:', error)
+    }
   }
 
   private processTextNodesBatch(

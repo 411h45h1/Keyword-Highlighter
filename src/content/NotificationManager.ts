@@ -48,17 +48,26 @@ export class NotificationManager {
   }
 
   static showHighlightRefreshFeedback(): void {
-    StyleManager.injectFlashStyles()
+    if (!document || !document.querySelectorAll) {
+      console.warn('Document not available for highlight refresh feedback')
+      return
+    }
 
-    const highlightedElements = document.querySelectorAll('.keyword-highlight')
+    try {
+      StyleManager.injectFlashStyles()
 
-    if (highlightedElements.length > 0) {
-      highlightedElements.forEach((element) => {
-        element.classList.add('keyword-highlight-flash')
-        setTimeout(() => {
-          element.classList.remove('keyword-highlight-flash')
-        }, 600)
-      })
+      const highlightedElements = document.querySelectorAll('.keyword-highlight')
+
+      if (highlightedElements.length > 0) {
+        highlightedElements.forEach((element) => {
+          element.classList.add('keyword-highlight-flash')
+          setTimeout(() => {
+            element.classList.remove('keyword-highlight-flash')
+          }, 600)
+        })
+      }
+    } catch (error) {
+      console.error('Error showing highlight refresh feedback:', error)
     }
   }
 }

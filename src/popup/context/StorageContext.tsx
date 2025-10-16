@@ -36,13 +36,15 @@ export function StorageProvider({ children }: StorageProviderProps) {
       const tabs = await chrome.tabs.query({})
       const messages = tabs.map((tab) => {
         if (tab.id) {
-          return chrome.tabs.sendMessage(tab.id, { action: 'updateProfiles' }).catch(() => {
+          return chrome.tabs.sendMessage(tab.id, { action: 'updateProfiles' }).catch((error) => {
             // Ignore errors for tabs that can't receive messages
+            console.log('Failed to notify tab:', tab.id, error.message)
           })
         }
         return Promise.resolve()
       })
       await Promise.all(messages)
+      console.log('Notified all content scripts')
     } catch (error) {
       console.error('Error notifying content scripts:', error)
     }
@@ -66,19 +68,26 @@ export function StorageProvider({ children }: StorageProviderProps) {
     setIsEnabledState(enabled)
     await chrome.storage.sync.set({ extensionEnabled: enabled })
 
-    const tabs = await chrome.tabs.query({})
-    tabs.forEach((tab) => {
-      if (tab.id) {
-        chrome.tabs
-          .sendMessage(tab.id, {
-            action: 'toggleExtension',
-            enabled: enabled,
-          })
-          .catch(() => {
-            // Ignore errors
-          })
-      }
-    })
+    try {
+      const tabs = await chrome.tabs.query({})
+      const promises = tabs.map((tab) => {
+        if (tab.id) {
+          return chrome.tabs
+            .sendMessage(tab.id, {
+              action: 'toggleExtension',
+              enabled: enabled,
+            })
+            .catch((error) => {
+              console.log('Failed to toggle extension for tab:', tab.id, error.message)
+            })
+        }
+        return Promise.resolve()
+      })
+      await Promise.all(promises)
+      console.log('Toggled extension for all tabs')
+    } catch (error) {
+      console.error('Error toggling extension:', error)
+    }
   }, [])
 
   const addProfile = useCallback(
