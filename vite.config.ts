@@ -3,11 +3,70 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   base: './',
   plugins: [
     react(),
+    {
+      name: 'build-content-script',
+      apply: 'build',
+      async closeBundle() {
+        // Build content script separately as IIFE to avoid module imports
+        const contentBuild = await import('vite').then((vite) =>
+          vite.build({
+            configFile: false,
+            build: {
+              outDir: 'dist',
+              emptyOutDir: false,
+              lib: {
+                entry: resolve(__dirname, 'src/content/index.ts'),
+                name: 'ContentScript',
+                formats: ['iife'],
+                fileName: () => 'content.js',
+              },
+              rollupOptions: {
+                output: {
+                  extend: true,
+                },
+              },
+            },
+            define: {
+              'process.env': {},
+            },
+          })
+        )
+      },
+    },
+    {
+      name: 'build-background-script',
+      apply: 'build',
+      async closeBundle() {
+        // Build background script separately as IIFE to avoid module import issues
+        const backgroundBuild = await import('vite').then((vite) =>
+          vite.build({
+            configFile: false,
+            build: {
+              outDir: 'dist',
+              emptyOutDir: false,
+              lib: {
+                entry: resolve(__dirname, 'src/background/index.ts'),
+                name: 'BackgroundScript',
+                formats: ['iife'],
+                fileName: () => 'background.js',
+              },
+              rollupOptions: {
+                output: {
+                  extend: true,
+                },
+              },
+            },
+            define: {
+              'process.env': {},
+            },
+          })
+        )
+      },
+    },
     {
       name: 'copy-files',
       closeBundle() {
@@ -57,18 +116,13 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/index.html'),
-        background: resolve(__dirname, 'src/background/index.ts'),
-        content: resolve(__dirname, 'src/content/index.ts'),
+        // content and background scripts are built separately in the plugins above
       },
       output: {
-        entryFileNames: (chunk) => {
-          if (chunk.name === 'background' || chunk.name === 'content') {
-            return '[name].js'
-          }
-          return 'assets/[name]-[hash].js'
-        },
+        entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
+        format: 'es',
       },
     },
   },

@@ -1,111 +1,51 @@
-import { useState, useEffect } from 'react'
-import type { Profile, StorageData } from '../types'
+import { useEffect } from 'react'
+import type { Profile } from '../types'
 import { generateId } from '../utils/helpers'
+import { StorageProvider, useStorage, AppProvider, useApp } from './context'
 import Header from './components/Header'
 import ProfileForm from './components/ProfileForm'
 import ProfilesList from './components/ProfilesList'
 import KeywordBank from './components/KeywordBank'
 
-function App() {
-  const [isEnabled, setIsEnabled] = useState(true)
-  const [profiles, setProfiles] = useState<Profile[]>([])
-  const [view, setView] = useState<'input' | 'saved' | 'bank'>('input')
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+function AppContent() {
+  const {
+    profiles,
+    isEnabled,
+    isLoading,
+    setIsEnabled,
+    addProfile,
+    updateProfile,
+    deleteProfile,
+    duplicateProfile,
+    refreshData,
+  } = useStorage()
 
-  const loadData = async () => {
-    try {
-      const result = await chrome.storage.sync.get(['extensionEnabled', 'profiles'])
-      const data = result as Partial<StorageData>
-      setIsEnabled(data.extensionEnabled !== false)
-      setProfiles(data.profiles || [])
-    } catch (error) {
-      console.error('Error loading data:', error)
-    }
-  }
+  const { view, setView, editingProfile, startEditing, cancelEditing } = useApp()
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadData()
-  }, [])
-
-  const handleToggle = async (enabled: boolean) => {
-    setIsEnabled(enabled)
-    await chrome.storage.sync.set({ extensionEnabled: enabled })
-
-    const tabs = await chrome.tabs.query({})
-    tabs.forEach((tab) => {
-      if (tab.id) {
-        chrome.tabs
-          .sendMessage(tab.id, {
-            action: 'toggleExtension',
-            data: enabled,
-          })
-          .catch(() => {})
-      }
-    })
-  }
+    refreshData()
+  }, [refreshData])
 
   const handleSaveProfile = async (profile: Profile) => {
-    const updatedProfiles = editingProfile
-      ? profiles.map((p) => (p.id === profile.id ? profile : p))
-      : [...profiles, { ...profile, id: profile.id || generateId() }]
-
-    setProfiles(updatedProfiles)
-    await chrome.storage.sync.set({ profiles: updatedProfiles })
-    setEditingProfile(null)
-
-    // Notify content scripts
-    notifyContentScripts()
-  }
-
-  const handleEditProfile = (profile: Profile) => {
-    setEditingProfile(profile)
-    setView('input')
-  }
-
-  const handleDeleteProfile = async (profileId: string) => {
-    const updatedProfiles = profiles.filter((p) => p.id !== profileId)
-    setProfiles(updatedProfiles)
-    await chrome.storage.sync.set({ profiles: updatedProfiles })
-    notifyContentScripts()
-  }
-
-  const handleDuplicateProfile = async (profile: Profile) => {
-    const newProfile: Profile = {
-      ...profile,
-      id: generateId(),
-      name: `${profile.name || 'Profile'} (Copy)`,
+    if (editingProfile) {
+      await updateProfile(profile)
+    } else {
+      await addProfile({ ...profile, id: profile.id || generateId() })
     }
-    const updatedProfiles = [...profiles, newProfile]
-    setProfiles(updatedProfiles)
-    await chrome.storage.sync.set({ profiles: updatedProfiles })
-    notifyContentScripts()
+    cancelEditing()
   }
 
-  const handleCancelEdit = () => {
-    setEditingProfile(null)
-  }
-
-  const notifyContentScripts = async () => {
-    try {
-      const tabs = await chrome.tabs.query({})
-      tabs.forEach((tab) => {
-        if (tab.id) {
-          chrome.tabs
-            .sendMessage(tab.id, {
-              action: 'updateProfiles',
-            })
-            .catch(() => {})
-        }
-      })
-    } catch (error) {
-      console.error('Error notifying content scripts:', error)
-    }
+  if (isLoading) {
+    return (
+      <div className="w-[600px] h-[600px] bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
   }
 
   return (
     <div className="w-[600px] h-[600px] bg-gray-50">
-      <Header isEnabled={isEnabled} onToggle={handleToggle} />
+      <Header isEnabled={isEnabled} onToggle={setIsEnabled} />
 
       <div className="p-4">
         {/* View Toggle */}
@@ -148,14 +88,14 @@ function App() {
             <ProfileForm
               profile={editingProfile}
               onSave={handleSaveProfile}
-              onCancel={editingProfile ? handleCancelEdit : undefined}
+              onCancel={editingProfile ? cancelEditing : undefined}
             />
           ) : view === 'saved' ? (
             <ProfilesList
               profiles={profiles}
-              onEdit={handleEditProfile}
-              onDelete={handleDeleteProfile}
-              onDuplicate={handleDuplicateProfile}
+              onEdit={startEditing}
+              onDelete={deleteProfile}
+              onDuplicate={duplicateProfile}
             />
           ) : (
             <KeywordBank />
@@ -163,6 +103,16 @@ function App() {
         </div>
       </div>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <StorageProvider>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </StorageProvider>
   )
 }
 

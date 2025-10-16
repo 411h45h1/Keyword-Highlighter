@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { Profile, KeywordGroup, UrlPattern, Template } from '../../types'
 import { generateId, parseKeywords } from '../../utils/helpers'
+import { useStorage } from '../context'
 import TemplatesModal from './TemplatesModal'
 
 interface ProfileFormProps {
@@ -10,46 +11,38 @@ interface ProfileFormProps {
 }
 
 export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
+  const { keywordBank, getAllKeywordsFromProfiles } = useStorage()
+
   const [profileName, setProfileName] = useState('')
   const [profileMode, setProfileMode] = useState<'single' | 'multi'>('single')
-  const [urlPatterns, setUrlPatterns] = useState<UrlPattern[]>([])
-  const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>([])
+  const [urlPatterns, setUrlPatterns] = useState<UrlPattern[]>([
+    { id: generateId(), urlPattern: '' },
+  ])
+  const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>([
+    { id: generateId(), name: '', keywords: [], color: '#ffff00' },
+  ])
   const [uniqueKeywords, setUniqueKeywords] = useState(false)
   const [exactCase, setExactCase] = useState(false)
   const [showTemplatesModal, setShowTemplatesModal] = useState(false)
-  const [availableKeywords, setAvailableKeywords] = useState<Record<string, string[]>>({})
-  const [keywordBank, setKeywordBank] = useState<string[]>([])
 
-  useEffect(() => {
-    const loadKeywordSuggestions = async () => {
-      try {
-        const result = await chrome.storage.sync.get(['keywordBank', 'profiles'])
-        setKeywordBank(result.keywordBank || [])
+  const resetForm = () => {
+    setProfileName('')
+    setProfileMode('single')
+    setUrlPatterns([{ id: generateId(), urlPattern: '' }])
+    setKeywordGroups([{ id: generateId(), name: '', keywords: [], color: '#ffff00' }])
+    setUniqueKeywords(false)
+    setExactCase(false)
+  }
 
-        const profiles = result.profiles || []
-        const allKeywords = new Set<string>()
-        profiles.forEach((p: Profile) => {
-          p.keywordGroups?.forEach((g) => {
-            g.keywords?.forEach((k) => allKeywords.add(k))
-          })
-        })
-
-        updateAvailableKeywordsForGroups(Array.from(allKeywords))
-      } catch (error) {
-        console.error('Error loading keyword suggestions:', error)
-      }
-    }
-    loadKeywordSuggestions()
-  }, [])
-
-  const updateAvailableKeywordsForGroups = (allSavedKeywords: string[]) => {
+  // Compute available keywords using useMemo instead of useEffect
+  const availableKeywords = useMemo(() => {
+    const allSavedKeywords = getAllKeywordsFromProfiles()
+    const combined = [...new Set([...keywordBank, ...allSavedKeywords])]
     const newAvailable: Record<string, string[]> = {}
 
     keywordGroups.forEach((group) => {
       const currentKeywords = group.keywords || []
       const currentKeywordsLower = currentKeywords.map((k) => k.toLowerCase())
-
-      const combined = [...new Set([...keywordBank, ...allSavedKeywords])]
 
       let available = combined.filter((k) => !currentKeywordsLower.includes(k.toLowerCase()))
 
@@ -67,56 +60,29 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
       )
     })
 
-    setAvailableKeywords(newAvailable)
-  }
+    return newAvailable
+  }, [keywordGroups, uniqueKeywords, keywordBank, getAllKeywordsFromProfiles])
 
   useEffect(() => {
-    const loadProfiles = async () => {
-      try {
-        const result = await chrome.storage.sync.get(['profiles'])
-        const profiles = result.profiles || []
-        const allKeywords = new Set<string>()
-        profiles.forEach((p: Profile) => {
-          p.keywordGroups?.forEach((g) => {
-            g.keywords?.forEach((k) => allKeywords.add(k))
-          })
-        })
-        updateAvailableKeywordsForGroups(Array.from(allKeywords))
-      } catch (error) {
-        console.error('Error loading profiles:', error)
-      }
+    if (profile) {
+      setProfileName(profile.name || '')
+      setProfileMode(profile.urlPatterns && profile.urlPatterns.length > 1 ? 'multi' : 'single')
+      setUrlPatterns(
+        profile.urlPatterns ||
+          (profile.urlPattern ? [{ id: generateId(), urlPattern: profile.urlPattern }] : [])
+      )
+      setKeywordGroups(profile.keywordGroups || [])
+      setUniqueKeywords(profile.uniqueKeywords || false)
+      setExactCase(profile.exactCase || false)
+    } else {
+      resetForm()
     }
-    loadProfiles()
-  }, [keywordGroups, uniqueKeywords, keywordBank])
-
-  const handleQuickAddKeyword = (groupId: string, keyword: string) => {
-    const group = keywordGroups.find((g) => g.id === groupId)
-    if (!group) return
-
-    const newKeywords = [...(group.keywords || []), keyword]
-    handleKeywordGroupChange(groupId, { keywords: newKeywords })
-  }
-
-  const resetForm = () => {
-    setProfileName('')
-    setProfileMode('single')
-    setUrlPatterns([{ id: generateId(), urlPattern: '' }])
-    setKeywordGroups([{ id: generateId(), name: '', keywords: [], color: '#ffff00' }])
-    setUniqueKeywords(false)
-    setExactCase(false)
-  }
+  }, [profile])
 
   const loadTemplate = (template: Template) => {
-    resetForm()
-
     setProfileName(template.name)
-
-    if (template.urlPatterns && template.urlPatterns.length > 1) {
-      setProfileMode('multi')
-    }
-
+    setProfileMode(template.urlPatterns && template.urlPatterns.length > 1 ? 'multi' : 'single')
     setUrlPatterns(template.urlPatterns.map((p) => ({ ...p, id: generateId() })))
-
     setKeywordGroups(
       template.keywordGroups.map((g) => ({
         ...g,
@@ -125,25 +91,13 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
     )
   }
 
-  useEffect(() => {
-    if (profile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setProfileName(profile.name || '')
-      setProfileMode(profile.urlPatterns && profile.urlPatterns.length > 1 ? 'multi' : 'single')
-
-      if (profile.urlPatterns) {
-        setUrlPatterns(profile.urlPatterns)
-      } else if (profile.urlPattern) {
-        setUrlPatterns([{ id: generateId(), urlPattern: profile.urlPattern }])
-      }
-
-      setKeywordGroups(profile.keywordGroups || [])
-      setUniqueKeywords(profile.uniqueKeywords || false)
-      setExactCase(profile.exactCase || false)
-    } else {
-      resetForm()
-    }
-  }, [profile])
+  const handleQuickAddKeyword = (groupId: string, keyword: string) => {
+    setKeywordGroups((groups) =>
+      groups.map((g) =>
+        g.id === groupId ? { ...g, keywords: [...(g.keywords || []), keyword] } : g
+      )
+    )
+  }
 
   const handleAddUrlPattern = () => {
     setUrlPatterns([...urlPatterns, { id: generateId(), urlPattern: '' }])
@@ -196,10 +150,28 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
     const newProfile: Profile = {
       id: profile?.id || generateId(),
       name: profileName.trim() || undefined,
-      urlPatterns: urlPatterns.map((p) => ({
-        ...p,
-        urlPattern: typeof p.urlPattern === 'string' ? p.urlPattern.trim() : p.urlPattern,
-      })),
+      urlPatterns: urlPatterns.map((p) => {
+        const cleanedPattern: UrlPattern = {
+          ...p,
+          urlPattern: typeof p.urlPattern === 'string' ? p.urlPattern.trim() : p.urlPattern,
+        }
+
+        if (
+          cleanedPattern.colorOverrides &&
+          Object.keys(cleanedPattern.colorOverrides).length === 0
+        ) {
+          delete cleanedPattern.colorOverrides
+        }
+
+        if (
+          cleanedPattern.textColorOverrides &&
+          Object.keys(cleanedPattern.textColorOverrides).length === 0
+        ) {
+          delete cleanedPattern.textColorOverrides
+        }
+
+        return cleanedPattern
+      }),
       keywordGroups: keywordGroups.map((g) => ({
         ...g,
         keywords: g.keywords.filter((k) => k.trim() !== ''),
@@ -283,27 +255,166 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
         {/* URL Patterns */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">URL Patterns</label>
-          <div className="space-y-2">
+          <div className="space-y-4">
             {urlPatterns.map((pattern) => (
-              <div key={pattern.id} className="flex gap-2">
-                <input
-                  type="text"
-                  value={
-                    typeof pattern.urlPattern === 'string'
-                      ? pattern.urlPattern
-                      : pattern.urlPattern.join(', ')
-                  }
-                  onChange={(e) => handleUrlPatternChange(pattern.id!, e.target.value)}
-                  placeholder="e.g., https://example.com/* or paste multiple URLs"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {profileMode === 'multi' && urlPatterns.length > 1 && (
-                  <button
-                    onClick={() => handleRemoveUrlPattern(pattern.id!)}
-                    className="px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
-                  >
-                    ✕
-                  </button>
+              <div key={pattern.id} className="border border-gray-200 rounded-lg p-3">
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={
+                      typeof pattern.urlPattern === 'string'
+                        ? pattern.urlPattern
+                        : pattern.urlPattern.join(', ')
+                    }
+                    onChange={(e) => handleUrlPatternChange(pattern.id!, e.target.value)}
+                    placeholder="e.g., https://example.com/* or paste multiple URLs"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {profileMode === 'multi' && urlPatterns.length > 1 && (
+                    <button
+                      onClick={() => handleRemoveUrlPattern(pattern.id!)}
+                      className="px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Color Overrides for Multi-URL Mode */}
+                {profileMode === 'multi' && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <h5 className="text-sm font-medium text-gray-700 mb-2">
+                      Color Overrides for this URL
+                    </h5>
+
+                    {/* Global Text Color Override */}
+                    <div className="mb-3 p-2 bg-gray-50 rounded">
+                      <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!pattern.textColorOverrides?.global}
+                          onChange={(e) => {
+                            const newPatterns = [...urlPatterns]
+                            const idx = newPatterns.findIndex((p) => p.id === pattern.id)
+                            if (idx !== -1) {
+                              if (e.target.checked) {
+                                newPatterns[idx].textColorOverrides = {
+                                  ...newPatterns[idx].textColorOverrides,
+                                  global: '#000000',
+                                }
+                              } else {
+                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                                const { global, ...rest } =
+                                  newPatterns[idx].textColorOverrides || {}
+                                newPatterns[idx].textColorOverrides =
+                                  Object.keys(rest).length > 0 ? rest : undefined
+                              }
+                              setUrlPatterns(newPatterns)
+                            }
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm font-medium">
+                          Highlighted Text Color (all keywords)
+                        </span>
+                      </label>
+                      {pattern.textColorOverrides?.global && (
+                        <div className="flex gap-2 items-center ml-6">
+                          <input
+                            type="color"
+                            value={pattern.textColorOverrides.global}
+                            onChange={(e) => {
+                              const newPatterns = [...urlPatterns]
+                              const idx = newPatterns.findIndex((p) => p.id === pattern.id)
+                              if (idx !== -1) {
+                                newPatterns[idx].textColorOverrides = {
+                                  ...newPatterns[idx].textColorOverrides,
+                                  global: e.target.value,
+                                }
+                                setUrlPatterns(newPatterns)
+                              }
+                            }}
+                            className="w-10 h-8 rounded cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={pattern.textColorOverrides.global}
+                            onChange={(e) => {
+                              const hex = e.target.value.trim()
+                              if (/^#[0-9A-F]{6}$/i.test(hex)) {
+                                const newPatterns = [...urlPatterns]
+                                const idx = newPatterns.findIndex((p) => p.id === pattern.id)
+                                if (idx !== -1) {
+                                  newPatterns[idx].textColorOverrides = {
+                                    ...newPatterns[idx].textColorOverrides,
+                                    global: hex,
+                                  }
+                                  setUrlPatterns(newPatterns)
+                                }
+                              }
+                            }}
+                            maxLength={7}
+                            placeholder="#000000"
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      )}
+                      <small className="text-xs text-gray-500 block mt-1 ml-6">
+                        Leave unchecked to use default text color
+                      </small>
+                    </div>
+
+                    {/* Per-Group Background Color Overrides */}
+                    <div className="space-y-2">
+                      <div className="text-sm text-gray-600 mb-1">
+                        Background color overrides per keyword group:
+                      </div>
+                      {keywordGroups.map((group) => (
+                        <div key={group.id} className="flex items-center gap-2">
+                          <label className="text-sm flex-1">
+                            {group.name || `Group ${keywordGroups.indexOf(group) + 1}`}:
+                          </label>
+                          <input
+                            type="color"
+                            value={pattern.colorOverrides?.[group.id!] || group.color}
+                            onChange={(e) => {
+                              const newPatterns = [...urlPatterns]
+                              const idx = newPatterns.findIndex((p) => p.id === pattern.id)
+                              if (idx !== -1) {
+                                newPatterns[idx].colorOverrides = {
+                                  ...newPatterns[idx].colorOverrides,
+                                  [group.id!]: e.target.value,
+                                }
+                                setUrlPatterns(newPatterns)
+                              }
+                            }}
+                            className="w-10 h-8 rounded cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={pattern.colorOverrides?.[group.id!] || group.color}
+                            onChange={(e) => {
+                              const hex = e.target.value.trim()
+                              if (/^#[0-9A-F]{6}$/i.test(hex)) {
+                                const newPatterns = [...urlPatterns]
+                                const idx = newPatterns.findIndex((p) => p.id === pattern.id)
+                                if (idx !== -1) {
+                                  newPatterns[idx].colorOverrides = {
+                                    ...newPatterns[idx].colorOverrides,
+                                    [group.id!]: hex,
+                                  }
+                                  setUrlPatterns(newPatterns)
+                                }
+                              }
+                            }}
+                            maxLength={7}
+                            placeholder={group.color}
+                            className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             ))}

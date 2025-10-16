@@ -12,6 +12,8 @@ export interface UrlPattern {
   urlPattern: string | string[]
   color?: string
   textColor?: string
+  colorOverrides?: Record<string, string> // Map of group IDs to override background colors
+  textColorOverrides?: Record<string, string> // Map of group IDs to override text colors (or "global" for all)
 }
 
 export interface Profile {

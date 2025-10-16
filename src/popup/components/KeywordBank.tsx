@@ -1,28 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { parseKeywords } from '../../utils/helpers'
+import { useStorage } from '../context'
 
 interface KeywordBankProps {
   onKeywordAdd?: (keyword: string) => void
 }
 
 export default function KeywordBank({ onKeywordAdd }: KeywordBankProps) {
+  const { keywordBank, setKeywordBank } = useStorage()
+
   const [keywordBankText, setKeywordBankText] = useState('')
   const [processedKeywords, setProcessedKeywords] = useState<string[]>([])
-  const [keywordBank, setKeywordBank] = useState<string[]>([])
-
-  useEffect(() => {
-    const loadKeywordBank = async () => {
-      try {
-        const result = await chrome.storage.sync.get(['keywordBank'])
-        if (result.keywordBank) {
-          setKeywordBank(result.keywordBank)
-        }
-      } catch (error) {
-        console.error('Error loading keyword bank:', error)
-      }
-    }
-    loadKeywordBank()
-  }, [])
 
   const handleProcessKeywords = () => {
     const keywords = parseKeywords(keywordBankText, true)
@@ -36,37 +24,20 @@ export default function KeywordBank({ onKeywordAdd }: KeywordBankProps) {
     }
 
     const updatedBank = [...new Set([...keywordBank, ...processedKeywords])]
-    setKeywordBank(updatedBank)
-
-    try {
-      await chrome.storage.sync.set({ keywordBank: updatedBank })
-      setKeywordBankText('')
-      setProcessedKeywords([])
-    } catch (error) {
-      console.error('Error saving keyword bank:', error)
-      alert('Error saving keywords to bank')
-    }
+    await setKeywordBank(updatedBank)
+    setKeywordBankText('')
+    setProcessedKeywords([])
   }
 
   const handleClearBank = async () => {
     if (window.confirm('Are you sure you want to clear the keyword bank?')) {
-      setKeywordBank([])
-      try {
-        await chrome.storage.sync.set({ keywordBank: [] })
-      } catch (error) {
-        console.error('Error clearing keyword bank:', error)
-      }
+      await setKeywordBank([])
     }
   }
 
   const handleRemoveKeyword = async (keyword: string) => {
     const updatedBank = keywordBank.filter((k) => k !== keyword)
-    setKeywordBank(updatedBank)
-    try {
-      await chrome.storage.sync.set({ keywordBank: updatedBank })
-    } catch (error) {
-      console.error('Error removing keyword:', error)
-    }
+    await setKeywordBank(updatedBank)
   }
 
   const handleKeywordClick = (keyword: string) => {

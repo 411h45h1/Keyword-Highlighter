@@ -3,9 +3,8 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "clean:setup": "bun clean:build && bun format && bun type-check",
-    "clean:build": "bun clean:install && bun build",
+    "clean:setup": "bun clean:build && bun lint:fix && bun format && bun type-check",
+    "clean:build": "bun clean:install && bun run build",
     "clean:install": "bun clean && bun install",
     "clean": "rm -rf dist node_modules bun.lock",
     "build": "tsc && vite build",
