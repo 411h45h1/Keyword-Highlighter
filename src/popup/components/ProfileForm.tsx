@@ -100,7 +100,15 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
   }
 
   const handleAddUrlPattern = () => {
-    setUrlPatterns([...urlPatterns, { id: generateId(), urlPattern: '' }])
+    setUrlPatterns([
+      ...urlPatterns,
+      {
+        id: generateId(),
+        urlPattern: '',
+        colorOverrides: {},
+        textColorOverrides: {},
+      },
+    ])
   }
 
   const handleRemoveUrlPattern = (id: string) => {
@@ -111,6 +119,12 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
 
   const handleUrlPatternChange = (id: string, value: string) => {
     setUrlPatterns(urlPatterns.map((p) => (p.id === id ? { ...p, urlPattern: value } : p)))
+  }
+
+  const updateUrlPattern = (patternId: string, updates: Partial<UrlPattern>) => {
+    setUrlPatterns((patterns) =>
+      patterns.map((pattern) => (pattern.id === patternId ? { ...pattern, ...updates } : pattern))
+    )
   }
 
   const handleAddKeywordGroup = () => {
@@ -230,7 +244,12 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
         <div className="mb-4">
           <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
             <button
-              onClick={() => setProfileMode('single')}
+              onClick={() => {
+                setProfileMode('single')
+                if (urlPatterns.length > 1) {
+                  setUrlPatterns([urlPatterns[0]])
+                }
+              }}
               className={`flex-1 py-2 px-4 rounded-md font-medium transition-colors ${
                 profileMode === 'single'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -240,7 +259,16 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
               Single URL
             </button>
             <button
-              onClick={() => setProfileMode('multi')}
+              onClick={() => {
+                setProfileMode('multi')
+                setUrlPatterns((patterns) =>
+                  patterns.map((pattern) => ({
+                    ...pattern,
+                    colorOverrides: pattern.colorOverrides || {},
+                    textColorOverrides: pattern.textColorOverrides || {},
+                  }))
+                )
+              }}
               className={`flex-1 py-2 px-4 rounded-md font-medium transition-colors ${
                 profileMode === 'multi'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -281,7 +309,7 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
                 </div>
 
                 {/* Color Overrides for Multi-URL Mode */}
-                {profileMode === 'multi' && (
+                {profileMode === 'multi' && keywordGroups.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <h5 className="text-sm font-medium text-gray-700 mb-2">
                       Color Overrides for this URL
@@ -294,22 +322,18 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
                           type="checkbox"
                           checked={!!pattern.textColorOverrides?.global}
                           onChange={(e) => {
-                            const newPatterns = [...urlPatterns]
-                            const idx = newPatterns.findIndex((p) => p.id === pattern.id)
-                            if (idx !== -1) {
-                              if (e.target.checked) {
-                                newPatterns[idx].textColorOverrides = {
-                                  ...newPatterns[idx].textColorOverrides,
+                            if (e.target.checked) {
+                              updateUrlPattern(pattern.id!, {
+                                textColorOverrides: {
+                                  ...pattern.textColorOverrides,
                                   global: '#000000',
-                                }
-                              } else {
-                                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                                const { global, ...rest } =
-                                  newPatterns[idx].textColorOverrides || {}
-                                newPatterns[idx].textColorOverrides =
-                                  Object.keys(rest).length > 0 ? rest : undefined
-                              }
-                              setUrlPatterns(newPatterns)
+                                },
+                              })
+                            } else {
+                              const { global, ...rest } = pattern.textColorOverrides || {}
+                              updateUrlPattern(pattern.id!, {
+                                textColorOverrides: Object.keys(rest).length > 0 ? rest : undefined,
+                              })
                             }
                           }}
                           className="rounded"
@@ -322,35 +346,29 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
                         <div className="flex gap-2 items-center ml-6">
                           <input
                             type="color"
-                            value={pattern.textColorOverrides.global}
+                            value={pattern.textColorOverrides?.global || '#000000'}
                             onChange={(e) => {
-                              const newPatterns = [...urlPatterns]
-                              const idx = newPatterns.findIndex((p) => p.id === pattern.id)
-                              if (idx !== -1) {
-                                newPatterns[idx].textColorOverrides = {
-                                  ...newPatterns[idx].textColorOverrides,
+                              updateUrlPattern(pattern.id!, {
+                                textColorOverrides: {
+                                  ...pattern.textColorOverrides,
                                   global: e.target.value,
-                                }
-                                setUrlPatterns(newPatterns)
-                              }
+                                },
+                              })
                             }}
                             className="w-10 h-8 rounded cursor-pointer"
                           />
                           <input
                             type="text"
-                            value={pattern.textColorOverrides.global}
+                            value={pattern.textColorOverrides?.global || '#000000'}
                             onChange={(e) => {
                               const hex = e.target.value.trim()
                               if (/^#[0-9A-F]{6}$/i.test(hex)) {
-                                const newPatterns = [...urlPatterns]
-                                const idx = newPatterns.findIndex((p) => p.id === pattern.id)
-                                if (idx !== -1) {
-                                  newPatterns[idx].textColorOverrides = {
-                                    ...newPatterns[idx].textColorOverrides,
+                                updateUrlPattern(pattern.id!, {
+                                  textColorOverrides: {
+                                    ...pattern.textColorOverrides,
                                     global: hex,
-                                  }
-                                  setUrlPatterns(newPatterns)
-                                }
+                                  },
+                                })
                               }
                             }}
                             maxLength={7}
@@ -369,50 +387,47 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
                       <div className="text-sm text-gray-600 mb-1">
                         Background color overrides per keyword group:
                       </div>
-                      {keywordGroups.map((group) => (
-                        <div key={group.id} className="flex items-center gap-2">
-                          <label className="text-sm flex-1">
-                            {group.name || `Group ${keywordGroups.indexOf(group) + 1}`}:
-                          </label>
-                          <input
-                            type="color"
-                            value={pattern.colorOverrides?.[group.id!] || group.color}
-                            onChange={(e) => {
-                              const newPatterns = [...urlPatterns]
-                              const idx = newPatterns.findIndex((p) => p.id === pattern.id)
-                              if (idx !== -1) {
-                                newPatterns[idx].colorOverrides = {
-                                  ...newPatterns[idx].colorOverrides,
-                                  [group.id!]: e.target.value,
+                      {keywordGroups.map((group) => {
+                        if (!group.id) return null
+                        return (
+                          <div key={group.id} className="flex items-center gap-2">
+                            <label className="text-sm flex-1">
+                              {group.name || `Group ${keywordGroups.indexOf(group) + 1}`}:
+                            </label>
+                            <input
+                              type="color"
+                              value={pattern.colorOverrides?.[group.id] || group.color}
+                              onChange={(e) => {
+                                updateUrlPattern(pattern.id!, {
+                                  colorOverrides: {
+                                    ...pattern.colorOverrides,
+                                    [group.id!]: e.target.value,
+                                  },
+                                })
+                              }}
+                              className="w-10 h-8 rounded cursor-pointer"
+                            />
+                            <input
+                              type="text"
+                              value={pattern.colorOverrides?.[group.id] || group.color}
+                              onChange={(e) => {
+                                const hex = e.target.value.trim()
+                                if (/^#[0-9A-F]{6}$/i.test(hex)) {
+                                  updateUrlPattern(pattern.id!, {
+                                    colorOverrides: {
+                                      ...pattern.colorOverrides,
+                                      [group.id!]: hex,
+                                    },
+                                  })
                                 }
-                                setUrlPatterns(newPatterns)
-                              }
-                            }}
-                            className="w-10 h-8 rounded cursor-pointer"
-                          />
-                          <input
-                            type="text"
-                            value={pattern.colorOverrides?.[group.id!] || group.color}
-                            onChange={(e) => {
-                              const hex = e.target.value.trim()
-                              if (/^#[0-9A-F]{6}$/i.test(hex)) {
-                                const newPatterns = [...urlPatterns]
-                                const idx = newPatterns.findIndex((p) => p.id === pattern.id)
-                                if (idx !== -1) {
-                                  newPatterns[idx].colorOverrides = {
-                                    ...newPatterns[idx].colorOverrides,
-                                    [group.id!]: hex,
-                                  }
-                                  setUrlPatterns(newPatterns)
-                                }
-                              }
-                            }}
-                            maxLength={7}
-                            placeholder={group.color}
-                            className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      ))}
+                              }}
+                              maxLength={7}
+                              placeholder={group.color}
+                              className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
