@@ -53,20 +53,9 @@ class BackgroundService {
 
       this.updateContextMenus(url)
 
-      // Try to send message to content script, but don't fail if it doesn't exist
-      try {
-        await chrome.tabs.sendMessage(tabId, {
-          action: 'updateProfiles',
-        } as ChromeMessage)
-        console.log('✅ Successfully notified content script on tab:', tabId)
-      } catch (messageError) {
-        // This is normal for tabs that don't have content scripts (like chrome:// pages)
-        console.log(
-          'ℹ️ Could not notify content script on tab:',
-          tabId,
-          '(this is normal for some pages)'
-        )
-      }
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'updateProfiles',
+      } as ChromeMessage)
     } catch (error) {
       console.error('Error processing tab:', error)
     }
@@ -101,7 +90,6 @@ class BackgroundService {
       await chrome.contextMenus.removeAll()
       await new Promise((resolve) => setTimeout(resolve, 10))
 
-      // Create initial menu as hidden - will be shown when matching profiles are found
       chrome.contextMenus.create(
         {
           id: 'quick-add-keyword',
@@ -112,8 +100,6 @@ class BackgroundService {
         () => {
           if (chrome.runtime.lastError) {
             console.error('Error creating context menu:', chrome.runtime.lastError)
-          } else {
-            console.log('Successfully created initial context menu (hidden)')
           }
         }
       )
@@ -140,39 +126,22 @@ class BackgroundService {
     this.isUpdatingContextMenus = true
 
     try {
-      console.log('=== CONTEXT MENU UPDATE START ===')
-      console.log('Current URL:', currentUrl)
-
       const result = await chrome.storage.sync.get(['profiles', 'extensionEnabled'])
       const profiles = (result.profiles || []) as Profile[]
       const isEnabled = result.extensionEnabled !== false
 
-      console.log('Extension enabled:', isEnabled)
-      console.log('Profiles from storage:', profiles)
-
       if (!isEnabled) {
-        console.log('Extension disabled, hiding menus')
         await this.hideContextMenus()
         return
       }
 
       const matchingProfiles = this.findMatchingProfiles(profiles, currentUrl)
-      console.log('Context menu update:', {
-        currentUrl,
-        totalProfiles: profiles.length,
-        matchingProfiles: matchingProfiles.length,
-        profileNames: matchingProfiles.map((p) => p.name || p.id),
-      })
 
       if (matchingProfiles.length > 0) {
-        console.log('Found matching profiles, showing context menus')
         await this.showContextMenusForProfiles(matchingProfiles)
       } else {
-        console.log('No matching profiles found, hiding menus')
         await this.hideContextMenus()
       }
-
-      console.log('=== CONTEXT MENU UPDATE END ===')
     } catch (error) {
       console.error('Error updating context menus:', error)
     } finally {
@@ -182,83 +151,41 @@ class BackgroundService {
 
   private findMatchingProfiles(profiles: Profile[], currentUrl: string): Profile[] {
     const matchingProfiles: Profile[] = []
-    console.log('🔍 Finding matching profiles for URL:', currentUrl)
-    console.log('📊 Total profiles to check:', profiles.length)
-
-    // TEMPORARY DEBUG: Show all profiles for testing (remove after debugging)
-    console.log(
-      '🗂️ All profiles in storage:',
-      profiles.map((p) => ({
-        id: p.id,
-        name: p.name,
-        urlPatterns: p.urlPatterns,
-        urlPattern: p.urlPattern,
-        keywordGroups: p.keywordGroups?.length || 0,
-      }))
-    )
 
     for (const profile of profiles) {
       let matches = false
-      console.log('🔎 Checking profile:', profile.name || profile.id, {
-        urlPatterns: profile.urlPatterns,
-        urlPattern: profile.urlPattern,
-        keywordGroups: profile.keywordGroups?.length || 0,
-      })
 
       if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
-        console.log('📋 Checking urlPatterns array...')
         for (const urlPattern of profile.urlPatterns) {
           const patterns = Array.isArray(urlPattern.urlPattern)
             ? urlPattern.urlPattern
             : [urlPattern.urlPattern || urlPattern]
 
-          console.log('🎯 Patterns to check:', patterns)
           for (const pattern of patterns) {
             if (typeof pattern === 'string' && urlMatches(currentUrl, pattern)) {
-              console.log('✅ URL matches pattern:', pattern)
               matches = true
               break
-            } else {
-              console.log('❌ URL does not match pattern:', pattern)
             }
           }
 
           if (matches) break
         }
       } else if (profile.urlPattern) {
-        console.log('🎯 Checking single urlPattern:', profile.urlPattern)
         matches = urlMatches(currentUrl, profile.urlPattern)
-        if (matches) {
-          console.log('✅ URL matches single pattern:', profile.urlPattern)
-        } else {
-          console.log('❌ URL does not match single pattern:', profile.urlPattern)
-        }
-      } else {
-        console.log('⚠️ Profile has no URL patterns defined')
       }
 
       if (matches) {
         matchingProfiles.push(profile)
-        console.log('🎉 Profile matched:', profile.name || profile.id)
-      } else {
-        console.log('🚫 Profile did not match:', profile.name || profile.id)
       }
     }
-
-    console.log('📈 Found matching profiles:', matchingProfiles.length)
 
     // TEMPORARY DEBUG: If no profiles match, show profiles that have keyword groups for testing
     if (matchingProfiles.length === 0) {
       const profilesWithGroups = profiles.filter(
         (p) => p.keywordGroups && p.keywordGroups.length > 0
       )
-      console.log(
-        '🔧 DEBUG: No matches found, but found profiles with keyword groups:',
-        profilesWithGroups.length
-      )
 
       if (profilesWithGroups.length > 0) {
-        console.log('🔧 DEBUG: Using first profile with keyword groups for testing')
         // TEMPORARILY ENABLED: Force context menu to appear for testing
         return profilesWithGroups.slice(0, 1)
       }
@@ -269,14 +196,8 @@ class BackgroundService {
 
   private async showContextMenusForProfiles(matchingProfiles: Profile[]): Promise<void> {
     try {
-      console.log('🎯 Showing context menus for profiles:', matchingProfiles.length)
-
-      console.log('🗑️ Removing all existing context menus...')
       await chrome.contextMenus.removeAll()
       await new Promise((resolve) => setTimeout(resolve, 10))
-
-      // Create main menu without visible: false when we have matching profiles
-      console.log('🔧 Creating main context menu...')
 
       const mainMenuPromise = new Promise<void>((resolve, reject) => {
         chrome.contextMenus.create(
@@ -287,10 +208,9 @@ class BackgroundService {
           },
           () => {
             if (chrome.runtime.lastError) {
-              console.error('❌ Error creating main menu:', chrome.runtime.lastError)
+              console.error('Error creating main menu:', chrome.runtime.lastError)
               reject(chrome.runtime.lastError)
             } else {
-              console.log('✅ Successfully created main menu')
               resolve()
             }
           }
@@ -301,7 +221,6 @@ class BackgroundService {
 
       for (const profile of matchingProfiles) {
         const profileId = `profile-${profile.id}`
-        console.log(`🔧 Creating profile menu for: ${profile.name || profile.id}`)
 
         const profileMenuPromise = new Promise<void>((resolve, reject) => {
           chrome.contextMenus.create(
@@ -313,10 +232,9 @@ class BackgroundService {
             },
             () => {
               if (chrome.runtime.lastError) {
-                console.error('❌ Error creating profile menu:', chrome.runtime.lastError)
+                console.error('Error creating profile menu:', chrome.runtime.lastError)
                 reject(chrome.runtime.lastError)
               } else {
-                console.log('✅ Successfully created profile menu:', profileId)
                 resolve()
               }
             }
@@ -326,12 +244,9 @@ class BackgroundService {
         await profileMenuPromise
 
         if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
-          console.log(`📁 Profile has ${profile.keywordGroups.length} keyword groups`)
-
           for (let index = 0; index < profile.keywordGroups.length; index++) {
             const group = profile.keywordGroups[index]
             const groupId = `${profileId}-group-${index}`
-            console.log('🔧 Creating group menu:', { groupId, profileId, groupName: group.name })
 
             const groupMenuPromise = new Promise<void>((resolve, reject) => {
               chrome.contextMenus.create(
@@ -343,10 +258,9 @@ class BackgroundService {
                 },
                 () => {
                   if (chrome.runtime.lastError) {
-                    console.error('❌ Error creating group menu:', chrome.runtime.lastError)
+                    console.error('Error creating group menu:', chrome.runtime.lastError)
                     reject(chrome.runtime.lastError)
                   } else {
-                    console.log('✅ Successfully created group menu:', groupId)
                     resolve()
                   }
                 }
@@ -355,14 +269,10 @@ class BackgroundService {
 
             await groupMenuPromise
           }
-        } else {
-          console.log('⚠️ No keyword groups found for profile:', profile.id)
         }
       }
-
-      console.log('🎉 Finished creating all context menus')
     } catch (error) {
-      console.error('❌ Error showing context menus:', error)
+      console.error('Error showing context menus:', error)
     }
   }
   private async hideContextMenus(): Promise<void> {
@@ -387,7 +297,6 @@ class BackgroundService {
       const menuId = info.menuItemId
 
       if (typeof menuId === 'string' && menuId.includes('-group-')) {
-        console.log('Context menu clicked:', menuId)
         const parts = menuId.split('-')
 
         // Expected format: "profile-{profileId}-group-{groupIndex}"
@@ -395,8 +304,6 @@ class BackgroundService {
         if (parts.length >= 4 && parts[0] === 'profile' && parts[2] === 'group') {
           const profileId = parts[1]
           const groupIndex = parseInt(parts[3], 10)
-
-          console.log('Parsed menu click:', { profileId, groupIndex, selectedText })
 
           try {
             await this.addKeywordToGroup(profileId, groupIndex, selectedText)
@@ -427,23 +334,10 @@ class BackgroundService {
               } as ChromeMessage)
               .catch(() => {})
           }
-        } else {
-          console.error('Invalid menu ID format:', menuId, 'Parts:', parts)
         }
-      } else {
-        console.log('Non-group menu item clicked:', menuId)
       }
     } catch (error) {
-      if (tab?.id) {
-        chrome.tabs
-          .sendMessage(tab.id, {
-            action: 'showNotification',
-            message: 'Error adding keyword to group',
-            type: 'error',
-            details: error instanceof Error ? error.message : 'Unknown error',
-          } as ChromeMessage)
-          .catch(() => {})
-      }
+      console.error('Error handling context menu click:', error)
     }
   }
 

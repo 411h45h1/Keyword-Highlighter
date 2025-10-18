@@ -330,7 +330,7 @@ export default function ProfileForm({ profile, onSave, onCancel }: ProfileFormPr
                                 },
                               })
                             } else {
-                              const { global, ...rest } = pattern.textColorOverrides || {}
+                              const { ...rest } = pattern.textColorOverrides || {}
                               updateUrlPattern(pattern.id!, {
                                 textColorOverrides: Object.keys(rest).length > 0 ? rest : undefined,
                               })

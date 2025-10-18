@@ -36,15 +36,12 @@ export function StorageProvider({ children }: StorageProviderProps) {
       const tabs = await chrome.tabs.query({})
       const messages = tabs.map((tab) => {
         if (tab.id) {
-          return chrome.tabs.sendMessage(tab.id, { action: 'updateProfiles' }).catch((error) => {
-            // Ignore errors for tabs that can't receive messages
-            console.log('Failed to notify tab:', tab.id, error.message)
-          })
+          // Ignore errors for tabs that can't receive messages
+          return chrome.tabs.sendMessage(tab.id, { action: 'updateProfiles' }).catch(() => {})
         }
         return Promise.resolve()
       })
       await Promise.all(messages)
-      console.log('Notified all content scripts')
     } catch (error) {
       console.error('Error notifying content scripts:', error)
     }
@@ -72,19 +69,14 @@ export function StorageProvider({ children }: StorageProviderProps) {
       const tabs = await chrome.tabs.query({})
       const promises = tabs.map((tab) => {
         if (tab.id) {
-          return chrome.tabs
-            .sendMessage(tab.id, {
-              action: 'toggleExtension',
-              enabled: enabled,
-            })
-            .catch((error) => {
-              console.log('Failed to toggle extension for tab:', tab.id, error.message)
-            })
+          return chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleExtension',
+            enabled: enabled,
+          })
         }
         return Promise.resolve()
       })
       await Promise.all(promises)
-      console.log('Toggled extension for all tabs')
     } catch (error) {
       console.error('Error toggling extension:', error)
     }

@@ -11,8 +11,7 @@ export default defineConfig({
       name: 'build-content-script',
       apply: 'build',
       async closeBundle() {
-        // Build content script separately as IIFE to avoid module imports
-        const contentBuild = await import('vite').then((vite) =>
+        await import('vite').then((vite) =>
           vite.build({
             configFile: false,
             build: {
@@ -41,8 +40,7 @@ export default defineConfig({
       name: 'build-background-script',
       apply: 'build',
       async closeBundle() {
-        // Build background script separately as IIFE to avoid module import issues
-        const backgroundBuild = await import('vite').then((vite) =>
+        await import('vite').then((vite) =>
           vite.build({
             configFile: false,
             build: {

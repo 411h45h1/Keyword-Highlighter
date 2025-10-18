@@ -26,7 +26,6 @@ export class ProfileMatcher {
   }
 
   private profileMatchesUrl(profile: Profile, currentUrl: string): boolean {
-    // Check new urlPatterns array format
     if (profile.urlPatterns && Array.isArray(profile.urlPatterns)) {
       for (const urlPattern of profile.urlPatterns) {
         const patterns = Array.isArray(urlPattern.urlPattern)

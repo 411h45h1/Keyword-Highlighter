@@ -65,9 +65,9 @@ class KeywordHighlighter {
             console.error('Error updating profiles:', error)
             sendResponse({ success: false, error: error.message })
           })
-        return true // Indicates async response
+        return true
       case 'toggleExtension': {
-        const enabled = (request as any).enabled
+        const enabled = (request as ChromeMessage & { enabled: boolean }).enabled
         this.handleToggleExtension(enabled)
         sendResponse({ success: true })
         break
@@ -153,7 +153,7 @@ class KeywordHighlighter {
   }
 
   private setupDOMObserver(): void {
-    this.domProcessor.setupObserver(() => {
+    this.domProcessor.setupObserver((elements: Element[]) => {
       if (!this.isEnabled) return
 
       const matchingProfiles = this.profileMatcher.findMatchingProfiles()
@@ -161,7 +161,7 @@ class KeywordHighlighter {
 
       const { keywordColorMap, exactCase } =
         this.highlightManager.buildKeywordColorMap(matchingProfiles)
-      this.domProcessor.processDocument(keywordColorMap, exactCase)
+      this.domProcessor.processElements(elements, keywordColorMap, exactCase)
     })
   }
 

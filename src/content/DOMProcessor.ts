@@ -1,16 +1,28 @@
 import { HighlightManager } from './HighlightManager.js'
 
+const CONFIG = {
+  MUTATION_DEBOUNCE_TIME: 50,
+  MAX_NODES_PER_PROCESS: 2000,
+  BATCH_SIZE: 50,
+  MAX_ELEMENTS_PER_MUTATION: 100,
+} as const
+
 export class DOMProcessor {
   private highlightManager: HighlightManager
   private observer: MutationObserver | null = null
   private mutationDebounceTimer: number | null = null
   private isProcessing = false
+  private currentMutationCallback?: (elements: Element[]) => void
 
   constructor(highlightManager: HighlightManager) {
     this.highlightManager = highlightManager
   }
 
-  setupObserver(onMutation?: () => void): void {
+  setupObserver(onMutationWithElements?: (elements: Element[]) => void): void {
+    if (onMutationWithElements) {
+      this.currentMutationCallback = onMutationWithElements
+    }
+
     if (this.observer) {
       this.observer.disconnect()
     }
@@ -36,14 +48,42 @@ export class DOMProcessor {
                   addedElements.push(element)
                   shouldProcess = true
                 }
+              } else if (node.nodeType === Node.TEXT_NODE) {
+                const parentElement = node.parentElement
+                if (parentElement && this.shouldProcessElement(parentElement)) {
+                  addedElements.push(parentElement)
+                  shouldProcess = true
+                }
+              }
+            }
+          } else if (mutation.type === 'characterData') {
+            const textNode = mutation.target
+            const parentElement = textNode.parentElement
+            if (parentElement && this.shouldProcessElement(parentElement)) {
+              addedElements.push(parentElement)
+              shouldProcess = true
+            }
+          } else if (mutation.type === 'attributes') {
+            const element = mutation.target as Element
+            if (this.shouldProcessElement(element)) {
+              const attributeName = mutation.attributeName
+              if (
+                attributeName === 'style' ||
+                attributeName === 'class' ||
+                attributeName === 'hidden'
+              ) {
+                addedElements.push(element)
+                shouldProcess = true
               }
             }
           }
         }
 
         if (shouldProcess && addedElements.length > 0) {
+          const limitedElements = addedElements.slice(0, CONFIG.MAX_ELEMENTS_PER_MUTATION)
           this.debounceMutation(() => {
-            onMutation?.()
+            const uniqueElements = Array.from(new Set(limitedElements))
+            this.currentMutationCallback?.(uniqueElements)
           })
         }
       })
@@ -51,6 +91,9 @@ export class DOMProcessor {
       this.observer.observe(document.body, {
         childList: true,
         subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden'],
       })
     } catch (error) {
       console.error('Error setting up DOM observer:', error)
@@ -70,16 +113,18 @@ export class DOMProcessor {
   ): void {
     if (this.isProcessing || elements.length === 0) return
 
+    const uniqueElements = Array.from(new Set(elements))
+
     this.isProcessing = true
     this.disconnectObserver()
 
     try {
-      for (const element of elements) {
+      for (const element of uniqueElements) {
         this.processElement(element, keywordColorMap, exactCase)
       }
     } finally {
       this.isProcessing = false
-      this.setupObserver()
+      this.setupObserver(this.currentMutationCallback)
     }
   }
 
@@ -103,7 +148,7 @@ export class DOMProcessor {
       console.error('Error processing document:', error)
     } finally {
       this.isProcessing = false
-      this.setupObserver()
+      this.setupObserver(this.currentMutationCallback)
     }
   }
 
@@ -138,7 +183,7 @@ export class DOMProcessor {
       const textNodes: Text[] = []
       let node: Node | null
       let nodeCount = 0
-      const maxNodes = 2000
+      const maxNodes = CONFIG.MAX_NODES_PER_PROCESS
 
       while ((node = walker.nextNode()) && nodeCount < maxNodes) {
         const textContent = node.textContent?.trim()
@@ -159,7 +204,7 @@ export class DOMProcessor {
     keywordColorMap: Map<string, Array<{ backgroundColor: string; textColor?: string }>>,
     exactCase: boolean
   ): void {
-    const batchSize = 50
+    const batchSize = CONFIG.BATCH_SIZE
     let currentIndex = 0
 
     const processBatch = (): void => {
@@ -180,12 +225,51 @@ export class DOMProcessor {
   }
 
   private shouldProcessElement(element: Element): boolean {
-    const tagName = element.tagName?.toLowerCase()
-    const skipTags = ['script', 'style', 'noscript', 'svg', 'canvas', 'iframe']
+    if (!element || !element.tagName) return false
+
+    const tagName = element.tagName.toLowerCase()
+
+    const skipTags = [
+      'script',
+      'style',
+      'noscript',
+      'svg',
+      'canvas',
+      'iframe',
+      'video',
+      'audio',
+      'object',
+      'embed',
+      'applet',
+      'map',
+      'area',
+      'base',
+      'link',
+      'meta',
+      'title',
+    ]
     if (skipTags.includes(tagName)) return false
 
     if (element.hasAttribute('data-highlighted') || element.classList.contains('keyword-highlight'))
       return false
+
+    if (element.hasAttribute('contenteditable')) return false
+
+    if (element.hasAttribute('hidden')) return false
+
+    const computedStyle = window.getComputedStyle(element)
+    if (
+      computedStyle.display === 'none' ||
+      computedStyle.visibility === 'hidden' ||
+      computedStyle.opacity === '0'
+    ) {
+      return false
+    }
+
+    const textContent = element.textContent?.trim()
+    if (!textContent || textContent.length === 0) {
+      return false
+    }
 
     return true
   }
@@ -198,6 +282,6 @@ export class DOMProcessor {
     this.mutationDebounceTimer = window.setTimeout(() => {
       callback()
       this.mutationDebounceTimer = null
-    }, 100)
+    }, CONFIG.MUTATION_DEBOUNCE_TIME)
   }
 }

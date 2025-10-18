@@ -262,7 +262,6 @@ export class HighlightManager {
     const parentElement = textNode.parentNode
     parentElement.replaceChild(fragment, textNode)
 
-    // Only call createBlinkingAnimations if parentElement is a valid Element
     if (parentElement && parentElement.nodeType === Node.ELEMENT_NODE) {
       this.createBlinkingAnimations(parentElement as Element)
     }
