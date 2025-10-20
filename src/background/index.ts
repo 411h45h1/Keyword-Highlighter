@@ -139,6 +139,7 @@ class BackgroundService {
 
       if (matchingProfiles.length > 0) {
         await this.showContextMenusForProfiles(matchingProfiles)
+        this.setupSelectionListener()
       } else {
         await this.hideContextMenus()
       }
@@ -147,6 +148,18 @@ class BackgroundService {
     } finally {
       this.isUpdatingContextMenus = false
     }
+  }
+
+  private setupSelectionListener(): void {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs.length > 0 && tabs[0].id) {
+        chrome.tabs
+          .sendMessage(tabs[0].id, {
+            action: 'setupSelectionHandler',
+          } as ChromeMessage)
+          .catch(() => {})
+      }
+    })
   }
 
   private findMatchingProfiles(profiles: Profile[], currentUrl: string): Profile[] {
@@ -179,14 +192,12 @@ class BackgroundService {
       }
     }
 
-    // TEMPORARY DEBUG: If no profiles match, show profiles that have keyword groups for testing
     if (matchingProfiles.length === 0) {
       const profilesWithGroups = profiles.filter(
         (p) => p.keywordGroups && p.keywordGroups.length > 0
       )
 
       if (profilesWithGroups.length > 0) {
-        // TEMPORARILY ENABLED: Force context menu to appear for testing
         return profilesWithGroups.slice(0, 1)
       }
     }
@@ -199,25 +210,44 @@ class BackgroundService {
       await chrome.contextMenus.removeAll()
       await new Promise((resolve) => setTimeout(resolve, 10))
 
-      const mainMenuPromise = new Promise<void>((resolve, reject) => {
-        chrome.contextMenus.create(
-          {
-            id: 'quick-add-keyword',
-            title: "Add '%s' to keyword group",
-            contexts: ['selection'],
-          },
-          () => {
-            if (chrome.runtime.lastError) {
-              console.error('Error creating main menu:', chrome.runtime.lastError)
-              reject(chrome.runtime.lastError)
-            } else {
-              resolve()
-            }
-          }
-        )
-      })
+      const baseMenus = [
+        {
+          id: 'quick-add-keyword',
+          title: "Add '%s' to keyword group",
+        },
+        {
+          id: 'delete-keyword-highlight',
+          title: "Delete '%s' keyword highlight",
+        },
+        {
+          id: 'modify-keyword',
+          title: "Move '%s' to different group",
+        },
+      ]
 
-      await mainMenuPromise
+      const menuPromises = baseMenus.map(
+        (menu) =>
+          new Promise<void>((resolve, reject) => {
+            chrome.contextMenus.create(
+              {
+                id: menu.id,
+                title: menu.title,
+                contexts: ['selection'],
+                visible: false,
+              },
+              () => {
+                if (chrome.runtime.lastError) {
+                  console.error(`Error creating ${menu.id} menu:`, chrome.runtime.lastError)
+                  reject(chrome.runtime.lastError)
+                } else {
+                  resolve()
+                }
+              }
+            )
+          })
+      )
+
+      await Promise.all(menuPromises)
 
       for (const profile of matchingProfiles) {
         const profileId = `profile-${profile.id}`
@@ -271,6 +301,59 @@ class BackgroundService {
           }
         }
       }
+
+      for (const profile of matchingProfiles) {
+        const profileId = `modify-profile-${profile.id}`
+
+        const modifyProfileMenuPromise = new Promise<void>((resolve, reject) => {
+          chrome.contextMenus.create(
+            {
+              id: profileId,
+              parentId: 'modify-keyword',
+              title: profile.name || `Profile ${profile.id}`,
+              contexts: ['selection'],
+            },
+            () => {
+              if (chrome.runtime.lastError) {
+                console.error('Error creating modify profile menu:', chrome.runtime.lastError)
+                reject(chrome.runtime.lastError)
+              } else {
+                resolve()
+              }
+            }
+          )
+        })
+
+        await modifyProfileMenuPromise
+
+        if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
+          for (let index = 0; index < profile.keywordGroups.length; index++) {
+            const group = profile.keywordGroups[index]
+            const groupId = `${profileId}-group-${index}`
+
+            const modifyGroupMenuPromise = new Promise<void>((resolve, reject) => {
+              chrome.contextMenus.create(
+                {
+                  id: groupId,
+                  parentId: profileId,
+                  title: group.name || `Group ${index + 1}`,
+                  contexts: ['selection'],
+                },
+                () => {
+                  if (chrome.runtime.lastError) {
+                    console.error('Error creating modify group menu:', chrome.runtime.lastError)
+                    reject(chrome.runtime.lastError)
+                  } else {
+                    resolve()
+                  }
+                }
+              )
+            })
+
+            await modifyGroupMenuPromise
+          }
+        }
+      }
     } catch (error) {
       console.error('Error showing context menus:', error)
     }
@@ -296,10 +379,132 @@ class BackgroundService {
 
       const menuId = info.menuItemId
 
-      if (typeof menuId === 'string' && menuId.includes('-group-')) {
+      let keywordInfo: {
+        profiles: Array<{
+          profileId: string
+          profileName: string
+          groupName: string
+          groupIndex: number
+        }>
+        isHighlighted: boolean
+      } | null = null
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'getKeywordInfo',
+          data: selectedText,
+        } as ChromeMessage)
+
+        if (response?.success) {
+          keywordInfo = response.data
+        }
+      } catch (error) {
+        console.error('Error getting keyword info:', error)
+      }
+
+      if (menuId === 'delete-keyword-highlight') {
+        if (!keywordInfo?.isHighlighted) {
+          chrome.tabs
+            .sendMessage(tab.id, {
+              action: 'showNotification',
+              message: 'Keyword is not currently highlighted',
+              type: 'info',
+              details: 'Only highlighted keywords can be deleted.',
+            } as ChromeMessage)
+            .catch(() => {})
+          return
+        }
+
+        try {
+          await this.deleteKeywordHighlight(selectedText)
+
+          chrome.tabs
+            .sendMessage(tab.id, {
+              action: 'updateProfiles',
+            } as ChromeMessage)
+            .catch(() => {})
+
+          const deletedFromGroups = keywordInfo.profiles
+            .map((p) => `${p.profileName} → ${p.groupName}`)
+            .join(', ')
+
+          chrome.tabs
+            .sendMessage(tab.id, {
+              action: 'showNotification',
+              message: `Keyword "${selectedText}" deleted successfully!`,
+              type: 'success',
+              details: `Removed from: ${deletedFromGroups}`,
+            } as ChromeMessage)
+            .catch(() => {})
+        } catch (error) {
+          console.error('Error deleting keyword highlight:', error)
+          chrome.tabs
+            .sendMessage(tab.id, {
+              action: 'showNotification',
+              message: 'Failed to delete keyword highlight',
+              type: 'error',
+              details: error instanceof Error ? error.message : 'Unknown error',
+            } as ChromeMessage)
+            .catch(() => {})
+        }
+        return
+      }
+
+      if (
+        typeof menuId === 'string' &&
+        menuId.startsWith('modify-profile-') &&
+        menuId.includes('-group-')
+      ) {
+        const parts = menuId.split('-')
+        if (
+          parts.length >= 5 &&
+          parts[0] === 'modify' &&
+          parts[1] === 'profile' &&
+          parts[3] === 'group'
+        ) {
+          const profileId = parts[2]
+          const groupIndex = parseInt(parts[4], 10)
+
+          try {
+            await this.deleteKeywordHighlight(selectedText)
+
+            await this.addKeywordToGroup(profileId, groupIndex, selectedText)
+
+            chrome.tabs
+              .sendMessage(tab.id, {
+                action: 'updateProfiles',
+              } as ChromeMessage)
+              .catch(() => {})
+
+            chrome.tabs
+              .sendMessage(tab.id, {
+                action: 'showNotification',
+                message: `Keyword "${selectedText}" moved successfully!`,
+                type: 'success',
+                details: 'Keyword has been moved to the new group.',
+              } as ChromeMessage)
+              .catch(() => {})
+          } catch (error) {
+            console.error('Error modifying keyword:', error)
+            chrome.tabs
+              .sendMessage(tab.id, {
+                action: 'showNotification',
+                message: 'Failed to modify keyword',
+                type: 'error',
+                details: error instanceof Error ? error.message : 'Unknown error',
+              } as ChromeMessage)
+              .catch(() => {})
+          }
+        }
+        return
+      }
+
+      if (
+        typeof menuId === 'string' &&
+        menuId.includes('-group-') &&
+        menuId.startsWith('profile-')
+      ) {
         const parts = menuId.split('-')
 
-        // Expected format: "profile-{profileId}-group-{groupIndex}"
         // So parts should be: ["profile", "{profileId}", "group", "{groupIndex}"]
         if (parts.length >= 4 && parts[0] === 'profile' && parts[2] === 'group') {
           const profileId = parts[1]
@@ -308,7 +513,6 @@ class BackgroundService {
           try {
             await this.addKeywordToGroup(profileId, groupIndex, selectedText)
 
-            // Notify content script to update
             chrome.tabs
               .sendMessage(tab.id, {
                 action: 'updateProfiles',
@@ -418,6 +622,37 @@ class BackgroundService {
     }
   }
 
+  private async deleteKeywordHighlight(keywordText: string): Promise<void> {
+    const result = await chrome.storage.sync.get(['profiles'])
+    const profiles = (result.profiles || []) as Profile[]
+
+    let keywordFound = false
+    const normalizedKeyword = keywordText.toLowerCase().trim()
+
+    for (const profile of profiles) {
+      if (profile.keywordGroups && Array.isArray(profile.keywordGroups)) {
+        for (const group of profile.keywordGroups) {
+          if (group.keywords && Array.isArray(group.keywords)) {
+            const originalLength = group.keywords.length
+            group.keywords = group.keywords.filter(
+              (keyword) => keyword.toLowerCase().trim() !== normalizedKeyword
+            )
+
+            if (group.keywords.length < originalLength) {
+              keywordFound = true
+            }
+          }
+        }
+      }
+    }
+
+    if (!keywordFound) {
+      throw new Error('Keyword not found in any group')
+    }
+
+    await chrome.storage.sync.set({ profiles })
+  }
+
   private handleMessage(
     request: ChromeMessage,
     _sender: chrome.runtime.MessageSender,
@@ -441,6 +676,18 @@ class BackgroundService {
             }
           })
           return true // Indicates async response
+        case 'updateMenuVisibility':
+          this.handleUpdateMenuVisibility(
+            request.data as { selectedText: string; isHighlighted: boolean }
+          )
+            .then(() => {
+              sendResponse({ success: true })
+            })
+            .catch((error) => {
+              console.error('Error updating menu visibility:', error)
+              sendResponse({ success: false, error: error.message })
+            })
+          return true
         default:
           sendResponse({ success: false, error: 'Unknown action' })
           break
@@ -453,7 +700,27 @@ class BackgroundService {
       })
     }
   }
+
+  private async handleUpdateMenuVisibility(data: {
+    selectedText: string
+    isHighlighted: boolean
+  }): Promise<void> {
+    try {
+      const { selectedText, isHighlighted } = data
+
+      if (selectedText && selectedText.trim()) {
+        await chrome.contextMenus.update('quick-add-keyword', { visible: true })
+        await chrome.contextMenus.update('delete-keyword-highlight', { visible: isHighlighted })
+        await chrome.contextMenus.update('modify-keyword', { visible: isHighlighted })
+      } else {
+        await chrome.contextMenus.update('quick-add-keyword', { visible: false })
+        await chrome.contextMenus.update('delete-keyword-highlight', { visible: false })
+        await chrome.contextMenus.update('modify-keyword', { visible: false })
+      }
+    } catch (error) {
+      console.error('Error updating menu visibility:', error)
+    }
+  }
 }
 
-// Initialize the background service
 new BackgroundService()

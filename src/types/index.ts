@@ -38,6 +38,9 @@ export type MessageAction =
   | 'showNotification'
   | 'forceHighlightRefresh'
   | 'updateContextMenus'
+  | 'getKeywordInfo'
+  | 'updateMenuVisibility'
+  | 'setupSelectionHandler'
 
 export interface ChromeMessage {
   action: MessageAction
